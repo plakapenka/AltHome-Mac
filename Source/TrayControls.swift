@@ -1,12 +1,14 @@
 import SwiftUI
+import CoreLocation
 import CoreWLAN
 import CoreBluetooth
 import IOBluetooth
 
 enum TrayPage: String {
-    case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", battery = "Аккумулятор"
+    case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", airDrop = "AirDrop", battery = "Аккумулятор"
     var settingsTitle: String {
         switch self {
+        case .airDrop: return "Настройки AirDrop…"
         case .wifi: return "Настройки Wi-Fi…"
         case .sound: return "Настройки звука…"
         case .bluetooth: return "Настройки Bluetooth…"
@@ -15,6 +17,7 @@ enum TrayPage: String {
     }
     var settings: String {
         switch self {
+        case .airDrop: return "com.apple.AirDrop-Handoff-Settings.extension"
         case .wifi: return "com.apple.wifi-settings-extension"
         case .sound: return "com.apple.Sound-Settings.extension"
         case .bluetooth: return "com.apple.BluetoothSettings"
@@ -49,7 +52,30 @@ private struct WirelessSwitch: View {
     }
 }
 
+private final class WiFiLocationAccess: NSObject, ObservableObject, CLLocationManagerDelegate {
+    static let shared = WiFiLocationAccess()
+    private let manager = CLLocationManager()
+    @Published private(set) var status: CLAuthorizationStatus = .notDetermined
+
+    private override init() {
+        super.init()
+        status = manager.authorizationStatus
+        manager.delegate = self
+    }
+
+    func request() {
+        NSApp.activate(ignoringOtherApps: true)
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        status = manager.authorizationStatus
+    }
+}
+
 private struct WiFiControls: View {
+    let openSettings: (String) -> Void
+    @ObservedObject private var access = WiFiLocationAccess.shared
     @State private var power = false
     @State private var connected: String?
     @State private var associated = false
@@ -66,10 +92,17 @@ private struct WiFiControls: View {
         power = interface?.powerOn() == true
         connected = interface?.ssid()
         associated = power && (connected != nil || (interface?.transmitRate() ?? 0) > 0)
-        networks = power ? networkChoices(interface?.cachedScanResults() ?? []) : []
+        if !power || access.status != .authorizedAlways {
+            networks = []
+            selected = nil
+            password = ""
+            scanID = nil
+        } else if networks.isEmpty {
+            networks = networkChoices(interface?.cachedScanResults() ?? [])
+        }
     }
     private func scan() {
-        guard let device = interface, power, !busy else { return }
+        guard let device = interface, power, access.status == .authorizedAlways, !busy else { return }
         let id = UUID()
         scanID = id
         message = ""
@@ -79,7 +112,7 @@ private struct WiFiControls: View {
                 guard scanID == id else { return }
                 scanID = nil
                 load()
-                guard power else { return }
+                guard power, access.status == .authorizedAlways else { return }
                 switch discovered {
                 case .success(let list): networks = networkChoices(list)
                 case .failure: message = "Не удалось обновить список сетей."
@@ -123,16 +156,32 @@ private struct WiFiControls: View {
 
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
-            HStack {
-                Text(associated ? (connected ?? "Подключено") : (power ? "Нет подключения" : "Выключено"))
-                    .foregroundStyle(.secondary).lineLimit(1)
-                Spacer()
+            HStack(spacing: 10) {
+                Image(systemName: power ? "wifi" : "wifi.slash")
+                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(power ? Color.blue : Color.secondary, in: Circle())
+                    .accessibilityHidden(true)
+                Text(associated ? (connected ?? "Подключено") : (power ? "Нет подключения" : "Wi-Fi выключен"))
+                    .font(.body.weight(.semibold)).lineLimit(1)
+                Spacer(minLength: 4)
                 WirelessSwitch(title: "Wi-Fi", isOn: Binding(get: { power }, set: setPower))
                     .disabled(connecting || interface == nil)
             }
             if power {
                 Divider()
-                if let choice = selected {
+                if access.status != .authorizedAlways {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Доступные сети").font(.subheadline.weight(.semibold))
+                        Text("Для показа названий сетей macOS нужен доступ к геолокации.")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        if access.status == .notDetermined {
+                            Button("Разрешить доступ") { access.request() }
+                        } else {
+                            Button("Настройки геолокации…") { openSettings("com.apple.preference.security?Privacy_LocationServices") }
+                        }
+                    }
+                } else if let choice = selected {
                     Text(choice.id).fontWeight(.semibold)
                     if !choice.network.supportsSecurity(.none) {
                         SecureField("Пароль сети",text:$password).onSubmit { connect(choice) }
@@ -157,21 +206,27 @@ private struct WiFiControls: View {
                                     if choice.id != connected { selected = choice; password = ""; message = "" }
                                 } label: {
                                     HStack {
-                                        Image(systemName:"wifi").frame(width:22)
+                                        Image(systemName: "wifi", variableValue: choice.network.rssiValue >= -60 ? 1 : (choice.network.rssiValue >= -75 ? 0.66 : 0.33))
+                                            .foregroundStyle(choice.id == connected ? Color.accentColor : .secondary)
+                                            .frame(width: 22)
                                         Text(choice.id).lineLimit(1)
                                         Spacer()
-                                        if choice.id == connected { Image(systemName:"checkmark") }
+                                        if choice.id == connected { Image(systemName:"checkmark").foregroundStyle(Color.accentColor) }
                                         else if !choice.network.supportsSecurity(.none) { Image(systemName:"lock.fill").font(.caption).foregroundStyle(.secondary) }
                                     }.padding(.vertical,5).contentShape(Rectangle())
                                 }.buttonStyle(MenuRowStyle(selected: choice.id == connected))
                             }
-                            if networks.isEmpty { Text(busy ? "Поиск сетей…" : "Нет доступных названий сетей").foregroundStyle(.secondary) }
+                            if networks.isEmpty && message.isEmpty { Text(busy ? "Поиск сетей…" : "Сети поблизости не найдены").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
                         }.frame(maxWidth:.infinity,alignment:.leading)
-                    }.frame(height:140)
+                    }.frame(height: min(168, CGFloat(max(networks.count, 1)) * 34))
                 }
             }
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
-        }.onAppear { load(); if power && networks.isEmpty { scan() } }
+        }
+        .onAppear { load(); scan() }
+        .onChange(of: access.status) { _ in load(); scan() }
+        .onDisappear { scanID = nil }
+
     }
 }
 
@@ -298,6 +353,7 @@ struct TrayControls: View {
     let initialPage: TrayPage
     @State private var wirelessPage: TrayPage = .wifi
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
+    let openAirDrop: () -> Void
     let openSettings: (String)->Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -305,6 +361,7 @@ struct TrayControls: View {
                 Picker("Беспроводные подключения", selection: $wirelessPage) {
                     Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
                     Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
+                    Text(TrayPage.airDrop.rawValue).tag(TrayPage.airDrop)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -313,7 +370,20 @@ struct TrayControls: View {
 
             Group {
                 switch page {
-                case .wifi: WiFiControls()
+                case .wifi: WiFiControls(openSettings: openSettings)
+                case .airDrop:
+                    Button(action: openAirDrop) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(Color.blue).font(.title2)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Открыть AirDrop").fontWeight(.semibold)
+                                Text("Передать файлы через Finder").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.forward").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.buttonStyle(MenuRowStyle())
                 case .sound: SoundControls()
                 case .bluetooth: BluetoothControls()
                 case .battery: BatteryControls(display: display)
@@ -332,6 +402,6 @@ struct TrayControls: View {
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                 }.foregroundStyle(.secondary)
             }.buttonStyle(MenuRowStyle()).padding(.horizontal, 7).padding(.vertical, 4)
-        }.frame(width: 310).fixedSize(horizontal: false, vertical: true)
+        }.frame(width: initialPage == .wifi ? 332 : 310).fixedSize(horizontal: false, vertical: true)
     }
 }

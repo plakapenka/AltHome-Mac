@@ -358,7 +358,15 @@ final class Tray: NSObject {
         guard let shelf = anchor.window, let screen = shelf.screen else { return }
         weak var presented: SlidingShelfPanel?
         let display = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
-        let controls = TrayControls(display:display, initialPage:page) { [weak self] pane in
+        let controls = TrayControls(display:display, initialPage:page, openAirDrop: { [weak self] in
+            presented?.dismiss()
+            guard let self else { return }
+            guard let finder = self.owner.ws.urlForApplication(withBundleIdentifier: "com.apple.finder") else {
+                self.owner.notify("Не удалось открыть AirDrop в Finder.")
+                return
+            }
+            self.owner.launch(Item(finder.appendingPathComponent("Contents/Applications/AirDrop.app")))
+        }) { [weak self] pane in
             presented?.dismiss()
             self?.openSettings(pane)
         }
