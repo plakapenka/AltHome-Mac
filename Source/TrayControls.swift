@@ -5,22 +5,6 @@ import IOBluetooth
 
 enum TrayPage: String {
     case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", battery = "Аккумулятор"
-    var icon: String {
-        switch self {
-        case .wifi: return "wifi"
-        case .sound: return "speaker.wave.2.fill"
-        case .bluetooth: return "antenna.radiowaves.left.and.right"
-        case .battery: return "battery.75percent"
-        }
-    }
-    var color: Color {
-        switch self {
-        case .wifi, .bluetooth: return .blue
-        case .sound: return .indigo
-        case .battery: return .green
-        }
-    }
-
     var settingsTitle: String {
         switch self {
         case .wifi: return "Настройки Wi-Fi…"
@@ -317,24 +301,15 @@ struct TrayControls: View {
     let openSettings: (String)->Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: page.icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white).frame(width: 32, height: 32)
-                    .background(page.color.gradient, in: RoundedRectangle(cornerRadius: 9))
-                    .accessibilityHidden(true)
-                if initialPage == .wifi {
-                    Picker("Беспроводные подключения", selection: $wirelessPage) {
-                        Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
-                        Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
-                    }.pickerStyle(.segmented).labelsHidden()
-                } else {
-                    Text(page.rawValue).font(.system(size: 19, weight: .semibold))
-                    Spacer()
+            if initialPage == .wifi {
+                Picker("Беспроводные подключения", selection: $wirelessPage) {
+                    Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
+                    Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 10).padding(.top, 10)
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(MenuAppearance.wash(page.color))
 
             Group {
                 switch page {
