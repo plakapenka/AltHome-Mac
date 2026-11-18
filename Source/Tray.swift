@@ -279,7 +279,7 @@ final class Tray {
             b.target = self; b.action = #selector(invoke(_:)); surface.addSubview(b); buttons.append(b)
         }
         while buttons.count > controls.count { buttons.removeLast().removeFromSuperview() }
-        let left = width-103-CGFloat(controls.count)*32
+        let left = owner.clockLabel.frame.minX-4-CGFloat(controls.count)*32
         for (i,c) in controls.enumerated() {
             let b = buttons[i]; b.tag = i; b.toolTip = c.label; b.setAccessibilityLabel(c.label)
             b.title = c.text ?? ""

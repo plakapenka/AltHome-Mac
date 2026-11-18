@@ -81,7 +81,12 @@ struct TaskEntry {
         return item.name
     }
 }
-final class ShelfBackground: NSView {
+class ShelfMenuSurface: NSView {
+    var makeMenu: (() -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+}
+
+final class ShelfBackground: ShelfMenuSurface {
     override var isOpaque: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         NSColor(srgbRed:0.115,green:0.12,blue:0.13,alpha:1).setFill()
@@ -228,10 +233,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let ws = NSWorkspace.shared
     let defaults = CommandLine.arguments.contains("--ui-check") ? UserDefaults(suiteName:"local.taskshelf.layoutcheck")! : UserDefaults.standard
     var bar: Bar!
-    let strip = NSView()
+    let strip = ShelfMenuSurface()
     let scroll = NSScrollView()
     let clockLabel = NSButton()
-    let options = NSButton()
     lazy var tray = Tray(self)
     let preview = WindowPreview()
     var pins: [Item] = []
@@ -261,6 +265,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
         bar.collectionBehavior = [.canJoinAllSpaces,.ignoresCycle,.fullScreenNone]
         bar.appearance = NSAppearance(named:.darkAqua)
         let glass = ShelfBackground()
+        glass.makeMenu = { [weak self] in self?.panelMenu() }
+        strip.makeMenu = glass.makeMenu
         glass.wantsLayer = true
         bar.contentView = glass
         scroll.drawsBackground = false
@@ -278,13 +284,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
         clockLabel.font = .monospacedDigitSystemFont(ofSize:13,weight:.medium)
         clockLabel.alignment = .center
         glass.addSubview(clockLabel)
-        options.contentTintColor = .white
-        options.title = ""
-        options.isBordered = false
-        options.image = NSImage(systemSymbolName:"ellipsis.circle",accessibilityDescription:"Меню панели")
-        options.toolTip = "Меню панели"
-        options.target = self; options.action = #selector(showMenu)
-        glass.addSubview(options)
         tray.install(glass)
         fmt.dateFormat = "HH:mm"
         let nc = ws.notificationCenter
@@ -398,10 +397,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
         if geometry != frame { geometry = frame; bar.setFrame(frame,display:true) }
         let width = frame.width
+        clockLabel.frame = NSRect(x:width-60,y:15,width:54,height:20)
         let trayLeft = tray.layout(width)
         scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
-        clockLabel.frame = NSRect(x:width-99,y:15,width:54,height:20)
-        options.frame = NSRect(x:width-44,y:7,width:36,height:36)
         clockLabel.title = fmt.string(from:Date())
         let apps = liveApps()
         let pids = Set(apps.map { $0.processIdentifier })
@@ -586,7 +584,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             ws.open(url)
         }
     }
-    @objc func showMenu() {
+    func panelMenu() -> NSMenu {
         let m = NSMenu()
         add(m,"Закрепить приложение…") {
             let p = NSOpenPanel()
@@ -619,7 +617,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             } catch { self.notify(error.localizedDescription) }
         }
         m.addItem(.separator()); add(m,"Завершить панель") { NSApp.terminate(nil) }
-        m.popUp(positioning:nil,at:NSPoint(x:0,y:options.bounds.maxY+6),in:options)
+        return m
     }
 }
 let app = NSApplication.shared

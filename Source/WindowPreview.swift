@@ -103,7 +103,7 @@ final class WindowPreview {
             message.isHidden = false
             panel.orderFrontRegardless()
             guard CGPreflightScreenCaptureAccess() else {
-                message.stringValue = "В меню «…» выберите\n«Разрешить превью окон…»"
+                message.stringValue = "ПКМ по фону панели →\n«Разрешить превью окон…»"
                 return
             }
             let target = PreviewTarget(pid:app.processIdentifier,window:task.entry?.window,
