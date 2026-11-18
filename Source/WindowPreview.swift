@@ -43,7 +43,8 @@ private final class PreviewCloseButton: ShelfButton {
 
 final class WindowPreview {
     private let panel: NSPanel
-    private let image = NSImageView(frame:NSRect(x:10,y:10,width:248,height:136))
+    private static let thumbnailSize = NSSize(width: 248, height: 136)
+    private let image = NSImageView(frame: NSRect(origin: NSPoint(x: 10, y: 10), size: WindowPreview.thumbnailSize))
     private let title = NSTextField(labelWithString:"")
     private let icon = NSImageView(frame:NSRect(x:12,y:154,width:17,height:17))
     private let message = NSTextField(wrappingLabelWithString:"")
@@ -75,7 +76,7 @@ final class WindowPreview {
         title.frame = NSRect(x:36,y:154,width:190,height:17)
         title.font = .systemFont(ofSize:13,weight:.medium)
         title.lineBreakMode = .byTruncatingTail
-        image.imageScaling = .scaleProportionallyUpOrDown
+        image.imageScaling = .scaleAxesIndependently
         icon.imageScaling = .scaleProportionallyUpOrDown
         message.frame = NSRect(x:16,y:48,width:236,height:46)
         message.font = .systemFont(ofSize:12)
@@ -173,7 +174,7 @@ final class WindowPreview {
                     let bitmap = try await Self.snapshot(window)
                     guard !Task.isCancelled else { return }
                     guard let bitmap else { break }
-                    image.image = NSImage(cgImage:bitmap,size:.zero)
+                    image.image = NSImage(cgImage: bitmap, size: Self.thumbnailSize)
                     message.isHidden = true
                     try await Task.sleep(nanoseconds:900_000_000)
                 }
@@ -185,17 +186,35 @@ final class WindowPreview {
         }
     }
 
+    // Bitmap coordinates start at the top. Keep title bars and browser tabs in view.
+    static func thumbnailCrop(in size: CGSize) -> CGRect {
+        let aspect = thumbnailSize.width / thumbnailSize.height
+        let width = min(size.width, size.height * aspect)
+        let height = min(size.height, size.width / aspect)
+        return CGRect(x: (size.width - width) / 2, y: 0, width: width, height: height)
+    }
+
     static func snapshot(_ window: SCWindow) async throws -> CGImage? {
+        let bitmap: CGImage?
         if #available(macOS 14.0, *) {
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let size = filter.contentRect.size
+            guard size.width > 0, size.height > 0 else { return nil }
+            let crop = thumbnailCrop(in: size)
+            // Keep Retina detail in the visible area and bound capture cost for extreme aspect ratios.
+            let scale = min(2 * thumbnailSize.width / crop.width, 2048 / max(size.width, size.height))
             let config = SCStreamConfiguration()
-            let scale = min(496 / max(1,window.frame.width), 272 / max(1,window.frame.height))
-            config.width = max(2, Int(window.frame.width * scale))
-            config.height = max(2, Int(window.frame.height * scale))
+            config.width = max(2, Int((size.width * scale).rounded()))
+            config.height = max(2, Int((size.height * scale).rounded()))
+            config.scalesToFit = true
             config.showsCursor = false
             config.ignoreShadowsSingleWindow = true
-            let filter = SCContentFilter(desktopIndependentWindow:window)
-            return try await SCScreenshotManager.captureImage(contentFilter:filter,configuration:config)
+            config.ignoreGlobalClipSingleWindow = true
+            bitmap = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        } else {
+            bitmap = CGWindowListCreateImage(.null, .optionIncludingWindow, window.windowID, [.boundsIgnoreFraming, .nominalResolution])
         }
-        return CGWindowListCreateImage(.null,.optionIncludingWindow,window.windowID,[.boundsIgnoreFraming,.nominalResolution])
+        guard let bitmap else { return nil }
+        return bitmap.cropping(to: thumbnailCrop(in: CGSize(width: bitmap.width, height: bitmap.height)).integral)
     }
 }
