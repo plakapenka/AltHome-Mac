@@ -46,18 +46,25 @@ private struct ShelfSettings: View {
                         }.pickerStyle(.radioGroup).disabled(!mirror)
                         Section {
                             LabeledContent("Размер значков") {
-                                Slider(value: $iconSize, in: 16...128, step: 1)
+                                Slider(value: Binding(get: { iconSize }, set: {
+                                    iconSize = $0
+                                    owner.tray.previewDock(.size)
+                                }), in: 16...128, step: 1, onEditingChanged: { owner.tray.previewDock(.size, editing: $0) })
                                     .accessibilityLabel("Размер значков")
                                 Text("\(Int(iconSize)) пт").monospacedDigit().frame(width: 48, alignment: .trailing)
                             }
                             Toggle("Увеличение при наведении", isOn: $magnifies)
                             LabeledContent("Увеличение") {
-                                Slider(value: $zoom, in: 1.1...2, step: 0.05)
+                                Slider(value: Binding(get: { zoom }, set: {
+                                    zoom = $0
+                                    owner.tray.previewDock(.magnification)
+                                }), in: 1.1...2, step: 0.05, onEditingChanged: { owner.tray.previewDock(.magnification, editing: $0) })
                                     .accessibilityLabel("Степень увеличения")
                                 Text(zoom, format: .percent.precision(.fractionLength(0)))
                                     .monospacedDigit().frame(width: 48, alignment: .trailing)
                             }.disabled(!magnifies)
                         }.disabled(!mirror)
+                        .onDisappear { owner.tray.endDockPreview() }
                     } else {
                         Section {
                             Toggle("Показывать дату", isOn: $showsDate)

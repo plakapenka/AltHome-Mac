@@ -92,6 +92,8 @@ private final class DockIconButton: NSButton {
     }
 }
 
+enum DockAdjustment { case size, magnification }
+
 final class DockStrip: NSView {
     let open: (DockEntry) -> Void
     var resized: ((NSSize) -> Void)?
@@ -102,6 +104,7 @@ final class DockStrip: NSView {
     private let scroll = NSScrollView()
     private let document = NSView()
     private var nameTag: DockNameTag?
+    private var adjustment: DockAdjustment?
     private var entries: [DockEntry] = []
     private var views: [String: NSView] = [:]
     private var subscriptions = Set<AnyCancellable>()
@@ -203,6 +206,26 @@ final class DockStrip: NSView {
         place(animateNeighbors: mirror.dragging)
     }
 
+    func preview(_ value: DockAdjustment?) {
+        adjustment = value
+        guard let value else { return }
+        nameTag?.hide()
+        configure()
+        strength = value == .magnification ? 1 : 0
+        if value == .magnification {
+            // Show the full lens on a visible icon while the pointer is in Settings.
+            let middle = naturalWidth / 2 + scroll.documentVisibleRect.midX - document.bounds.midX
+            var x: CGFloat = 8, distance = CGFloat.infinity
+            for entry in entries {
+                if entry.role == "AXSeparatorDockItem" { x += 12; continue }
+                let center = x + (side + 2) / 2
+                if abs(center - middle) < distance { focus = center; distance = abs(center - middle) }
+                x += side + 2
+            }
+        }
+        place(animateNeighbors: false)
+    }
+
     func startClock() {
         stop()
         if #available(macOS 14, *) {
@@ -233,6 +256,7 @@ final class DockStrip: NSView {
         guard let window, window.isVisible else { stop(); return }
         let now = CACurrentMediaTime(), dt = min(0.08, now - lastTick)
         lastTick = now
+        guard adjustment == nil else { return }
         guard pressedKey == nil, !mirror.dragging, (window as? SlidingShelfPanel)?.isClosing != true else {
             nameTag?.hide()
             return

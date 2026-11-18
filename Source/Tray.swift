@@ -49,6 +49,9 @@ final class Tray: NSObject {
     private let dockEdge = DockEdge(frame: .zero)
     private lazy var dockMirror = DockMirror(defaults: owner.defaults)
     private var dockMouseTimer: Timer?
+    private var dockAdjustment: DockAdjustment?
+    private var editingDockSlider = false
+    private var previewEnd: DispatchWorkItem?
     var dockEnabled: Bool { owner.defaults.bool(forKey: "mirrorSystemDock") }
     private weak var dockStrip: DockStrip?
     private var dockPanel: SlidingShelfPanel?
@@ -56,6 +59,28 @@ final class Tray: NSObject {
     var dockPinned: Bool { owner.defaults.bool(forKey: "dockPinned") }
     var dockVisible: Bool { dockPanel?.isVisible == true && dockPanel?.isClosing == false }
     var pinnedDockTop: CGFloat? { dockEnabled && dockPinned && dockVisible ? dockStrip.map { owner.bar.frame.maxY + 6 + $0.restingHeight } : nil }
+
+    func previewDock(_ kind: DockAdjustment, editing: Bool? = nil) {
+        guard dockEnabled else { return }
+        if let editing { editingDockSlider = editing }
+        previewEnd?.cancel()
+        dockAdjustment = kind
+        if !dockVisible { showDock() }
+        dockStrip?.preview(kind)
+        if !editingDockSlider {
+            let work = DispatchWorkItem { [weak self] in self?.endDockPreview() }
+            previewEnd = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65, execute: work)
+        }
+    }
+
+    func endDockPreview() {
+        previewEnd?.cancel()
+        previewEnd = nil
+        dockAdjustment = nil
+        editingDockSlider = false
+        dockStrip?.preview(nil)
+    }
 
     private func hideDock() {
         dockMouseTimer?.invalidate()
@@ -102,7 +127,7 @@ final class Tray: NSObject {
         owner.defaults.set(enabled, forKey: "mirrorSystemDock")
         dockEdge.isHidden = !enabled
         if enabled { dockMirror.refresh() }
-        else { hideDock() }
+        else { endDockPreview(); hideDock() }
     }
 
     @objc private func showDock() {
@@ -111,7 +136,7 @@ final class Tray: NSObject {
         guard !dockMirror.entries.isEmpty else {
             dockMirror.onFirstEntries = { [weak self] in
                 guard let self, let window = self.dockEdge.window,
-                      self.dockPinned || window.convertToScreen(self.dockEdge.convert(self.dockEdge.bounds, to: nil))
+                      self.dockAdjustment != nil || self.dockPinned || window.convertToScreen(self.dockEdge.convert(self.dockEdge.bounds, to: nil))
                         .contains(NSEvent.mouseLocation) else { return }
                 self.showDock()
             }
@@ -137,10 +162,11 @@ final class Tray: NSObject {
         panel.showPanel(takingKey: false, dismissOnOutsideClick: !dockPinned)
         dockMouseTimer?.invalidate()
         var lastInside = Date()
+        if let dockAdjustment { card.preview(dockAdjustment) }
         card.startClock()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self, weak panel, weak shelf, weak card] timer in
             guard let self, let panel, let shelf, panel.isVisible, !panel.isClosing else { card?.stop(); timer.invalidate(); return }
-            guard !self.dockPinned else { return }
+            guard !self.dockPinned, self.dockAdjustment == nil else { return }
             let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
                                   height: panel.frame.maxY - shelf.frame.minY)
             if self.dockMirror.dragging || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
