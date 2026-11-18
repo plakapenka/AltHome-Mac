@@ -100,7 +100,34 @@ final class Action: NSObject {
     let run: () -> Void
     init(_ run: @escaping () -> Void) { self.run = run }
 }
-final class Tile: NSButton {
+class ShelfButton: NSButton {
+    private var hover = false
+    var selected = false
+    private var area: NSTrackingArea?
+    override init(frame: NSRect) {
+        super.init(frame:frame)
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area { removeTrackingArea(area) }
+        let a = NSTrackingArea(rect:.zero,options:[.inVisibleRect,.activeAlways,.mouseEnteredAndExited],owner:self)
+        addTrackingArea(a); area = a
+    }
+    override func mouseEntered(with e: NSEvent) { hover = true; tint() }
+    override func mouseExited(with e: NSEvent) { hover = false; tint() }
+    func tint() {
+        let outlined = selected || hover
+        layer?.cornerRadius = outlined ? 6 : 0
+        layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.2 : 0.12).cgColor
+        layer?.borderWidth = outlined ? 1 / (window?.backingScaleFactor ?? 1) : 0
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(selected ? (hover ? 0.22 : 0.16) : (hover ? 0.08 : 0)).cgColor
+    }
+}
+
+final class Tile: ShelfButton {
     static let maximumWidth: CGFloat = 204
     private static let captionX: CGFloat = 44
     private static let trailingInset: CGFloat = 10
@@ -126,17 +153,12 @@ final class Tile: NSButton {
     private let icon = NSImageView()
     private let caption = NSTextField(labelWithString:"")
     private let indicator = NSView()
-    private var hover = false
-    private var selected = false
-    private var area: NSTrackingArea?
     init(_ item: Item) {
         self.item = item
         super.init(frame: NSRect(x:0,y:0,width:48,height:44))
         isBordered = false
         imagePosition = .noImage
         title = ""
-        wantsLayer = true
-        layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleProportionallyUpOrDown
         addSubview(icon)
         indicator.wantsLayer = true
@@ -165,20 +187,13 @@ final class Tile: NSButton {
         super.mouseDown(with:event)
     }
     @objc func clicked() { press?() }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let area { removeTrackingArea(area) }
-        let a = NSTrackingArea(rect:.zero,options:[.inVisibleRect,.activeAlways,.mouseEnteredAndExited],owner:self)
-        addTrackingArea(a); area = a
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with:event)
+        previewHover?(true)
     }
-    override func mouseEntered(with e: NSEvent) { hover = true; tint(); previewHover?(true) }
-    override func mouseExited(with e: NSEvent) { hover = false; tint(); previewHover?(false) }
-    func tint() {
-        let outlined = selected || hover
-        layer?.cornerRadius = outlined ? 6 : 0
-        layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.2 : 0.12).cgColor
-        layer?.borderWidth = outlined ? 1 / (window?.backingScaleFactor ?? 1) : 0
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(selected ? (hover ? 0.22 : 0.16) : (hover ? 0.08 : 0)).cgColor
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with:event)
+        previewHover?(false)
     }
     func update(image: NSImage, running: Bool, active: Bool, pinned: Bool, text: String?) {
         icon.image = image

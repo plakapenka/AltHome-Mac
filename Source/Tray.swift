@@ -34,7 +34,7 @@ struct Extra {
 }
 final class Tray {
     unowned let owner: Delegate
-    let apple = NSButton()
+    let apple = ShelfButton(frame:.zero)
     var buttons: [NSButton] = []
     var extras: [Extra] = []
     var scanTime = Date.distantPast
@@ -132,7 +132,7 @@ final class Tray {
     private var actions: [(NSButton)->Void] = []
     @objc func invoke(_ b:NSButton) { if actions.indices.contains(b.tag) { actions[b.tag](b) } }
     func layout(_ width:CGFloat) -> CGFloat {
-        apple.frame = NSRect(x:0,y:2,width:44,height:46)
+        apple.frame = NSRect(x:1,y:3,width:44,height:44)
         scan()
         var controls: [Control] = []
         let wifi = CWWiFiClient.shared().interface()
