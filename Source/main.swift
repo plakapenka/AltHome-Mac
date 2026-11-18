@@ -639,8 +639,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
     @objc func invoke(_ sender: NSMenuItem) { (sender.representedObject as? Action)?.run() }
-    func add(_ menu: NSMenu,_ title:String,_ run:@escaping ()->Void) {
+    func add(_ menu: NSMenu,_ title:String, symbol: String? = nil,_ run:@escaping ()->Void) {
         let m = NSMenuItem(title:title,action:#selector(invoke(_:)),keyEquivalent:"")
+        m.image = symbol.flatMap { NSImage(systemSymbolName:$0, accessibilityDescription:nil) }
         m.target = self; m.representedObject = Action(run); menu.addItem(m)
     }
     func save() { if let data = try? JSONEncoder().encode(pins) { defaults.set(data,forKey:"pins") }; refresh() }
@@ -648,7 +649,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle:item.name,action:nil,keyEquivalent:"")
         let pinned = pins.contains(where:{$0.key == item.key})
-        add(menu,pinned ? "Открепить" : "Закрепить") {
+        add(menu,pinned ? "Открепить" : "Закрепить", symbol: pinned ? "pin.slash" : "pin") {
             if pinned { self.pins.removeAll { $0.key == item.key } } else { self.pins.append(item) }
             self.save()
         }
@@ -658,7 +659,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if let w = target ?? focused ?? all.first, (attr(w,"AXFullScreen") as? Bool) != true {
                 var writable = DarwinBoolean(false)
                 if AXUIElementIsAttributeSettable(w,kAXSizeAttribute as CFString,&writable) == .success && writable.boolValue {
-                    add(menu,"Развернуть / вернуть размер") { self.fit(w,app) }
+                    add(menu,"Развернуть / вернуть размер", symbol: "arrow.up.left.and.arrow.down.right") { self.fit(w,app) }
                 }
             }
             if !all.isEmpty { menu.addItem(.separator()) }
@@ -669,7 +670,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             // Bind the command when the menu opens, even if focus changes later.
             if let w = target ?? focused ?? (all.count == 1 ? all.first : nil) {
                 menu.addItem(.separator())
-                add(menu,"Закрыть окно") {
+                add(menu,"Закрыть окно", symbol: "xmark.rectangle") {
                     guard let button = element(w,kAXCloseButtonAttribute),
                           AXUIElementPerformAction(button,kAXPressAction as CFString) == .success else {
                         self.notify("Не удалось закрыть выбранное окно.")
@@ -683,7 +684,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             let close = menu.addItem(withTitle:"Закрыть окно",action:nil,keyEquivalent:"")
             close.isEnabled = false
             close.toolTip = "Для закрытия окон включите TaskShelf в разделе «Универсальный доступ»."
-            add(menu,"Разрешить доступ к окнам…") { self.requestWindowAccess() }
+            add(menu,"Разрешить доступ к окнам…", symbol: "accessibility") { self.requestWindowAccess() }
         }
         return menu
     }
@@ -695,7 +696,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     func panelMenu() -> NSMenu {
         let m = NSMenu()
-        add(m,"Закрепить приложение…") {
+        add(m,"Закрепить приложение…", symbol: "pin") {
             let p = NSOpenPanel()
             p.directoryURL = URL(fileURLWithPath:"/Applications"); p.allowedContentTypes = [.applicationBundle]
             p.canChooseFiles = true; p.canChooseDirectories = false
@@ -704,18 +705,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 if !self.pins.contains(where:{$0.key == item.key}) { self.pins.append(item); self.save() }
             }
         }
-        add(m,"Показывать дату") {
+        add(m,"Показывать дату", symbol: "calendar") {
             self.defaults.set(!self.showsDate, forKey:"showDate")
             self.render()
         }
         m.items.last?.state = showsDate ? .on : .off
         if !AXIsProcessTrusted() {
-            add(m,"Разрешить доступ к окнам…") {
+            add(m,"Разрешить доступ к окнам…", symbol: "accessibility") {
                 self.requestWindowAccess()
             }
         }
         if !CGPreflightScreenCaptureAccess() {
-            add(m,"Разрешить превью окон…") {
+            add(m,"Разрешить превью окон…", symbol: "macwindow") {
                 _ = CGRequestScreenCaptureAccess()
                 if !CGPreflightScreenCaptureAccess(), let url = URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
                     self.ws.open(url)
@@ -723,14 +724,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
         }
         let service = SMAppService.mainApp
-        add(m,service.status == .enabled ? "Отключить запуск при входе" : "Запускать при входе") {
+        add(m,service.status == .enabled ? "Отключить запуск при входе" : "Запускать при входе", symbol: "person.crop.circle") {
             do {
                 if service.status == .enabled { try service.unregister() }
                 else if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
                 else { try service.register(); if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() } }
             } catch { self.notify(error.localizedDescription) }
         }
-        m.addItem(.separator()); add(m,"Завершить панель") { NSApp.terminate(nil) }
+        m.addItem(.separator()); add(m,"Завершить панель", symbol: "power") { NSApp.terminate(nil) }
         return m
     }
 }

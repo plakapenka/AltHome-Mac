@@ -13,6 +13,14 @@ enum TrayPage: String {
         case .battery: return "battery.75percent"
         }
     }
+    var color: Color {
+        switch self {
+        case .wifi, .bluetooth: return .blue
+        case .sound: return .indigo
+        case .battery: return .green
+        }
+    }
+
     var settingsTitle: String {
         switch self {
         case .wifi: return "Настройки Wi-Fi…"
@@ -171,7 +179,7 @@ private struct WiFiControls: View {
                                         if choice.id == connected { Image(systemName:"checkmark") }
                                         else if !choice.network.supportsSecurity(.none) { Image(systemName:"lock.fill").font(.caption).foregroundStyle(.secondary) }
                                     }.padding(.vertical,5).contentShape(Rectangle())
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(MenuRowStyle(selected: choice.id == connected))
                             }
                             if networks.isEmpty { Text(busy ? "Поиск сетей…" : "Нет доступных названий сетей").foregroundStyle(.secondary) }
                         }.frame(maxWidth:.infinity,alignment:.leading)
@@ -291,7 +299,7 @@ private struct SoundControls: View {
                                 Spacer()
                                 if output.id == device { Image(systemName:"checkmark").foregroundStyle(Color.accentColor) }
                             }.padding(.vertical,6).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(MenuRowStyle(selected: output.id == device))
                     }
                 }
             }.frame(height:min(128,CGFloat(max(1,devices.count))*32))
@@ -307,33 +315,53 @@ struct TrayControls: View {
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openSettings: (String)->Void
     var body: some View {
-        VStack(alignment:.leading,spacing:12) {
-            if initialPage == .wifi {
-                Picker("Беспроводные подключения", selection: $wirelessPage) {
-                    Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
-                    Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            } else {
-                HStack {
-                    Image(systemName:page.icon).foregroundStyle(Color.accentColor)
-                    Text(page.rawValue).font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: page.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white).frame(width: 32, height: 32)
+                    .background(page.color.gradient, in: RoundedRectangle(cornerRadius: 9))
+                    .accessibilityHidden(true)
+                if initialPage == .wifi {
+                    Picker("Беспроводные подключения", selection: $wirelessPage) {
+                        Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
+                        Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
+                    }.pickerStyle(.segmented).labelsHidden()
+                } else {
+                    Text(page.rawValue).font(.system(size: 19, weight: .semibold))
                     Spacer()
                 }
             }
-            switch page {
-            case .wifi: WiFiControls()
-            case .sound: SoundControls()
-            case .bluetooth: BluetoothControls()
-            case .battery:
-                if let battery = BatteryStatus.current() {
-                    ProgressView(value:battery.fraction)
-                    Text(battery.description)
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background(MenuAppearance.wash(page.color))
+
+            Group {
+                switch page {
+                case .wifi: WiFiControls()
+                case .sound: SoundControls()
+                case .bluetooth: BluetoothControls()
+                case .battery:
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let battery = BatteryStatus.current() {
+                            Text(battery.description)
+                            ProgressView(value: battery.fraction).tint(.green)
+                        }
+                    }
                 }
-            }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 10).padding(.vertical, 8)
+
             Divider()
-            Button(page.settingsTitle) { openSettings(page.settings) }.buttonStyle(.link)
-        }.padding(16).frame(width:310).fixedSize(horizontal:false,vertical:true)
+            Button { openSettings(page.settings) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape")
+                    Text(page.settingsTitle)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                }.foregroundStyle(.secondary)
+            }.buttonStyle(MenuRowStyle()).padding(.horizontal, 7).padding(.vertical, 4)
+        }.frame(width: 310).fixedSize(horizontal: false, vertical: true)
     }
 }

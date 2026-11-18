@@ -91,7 +91,7 @@ struct StartMenu: View {
                 Spacer(minLength:0)
             }
             .padding(.horizontal,7).frame(height:34)
-            .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "row"+item.key ? 0.09 : 0)))
+            .background(MenuAppearance.selection(hover == "row"+item.key))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityLabel(item.name)
@@ -115,7 +115,8 @@ struct StartMenu: View {
             }
             .padding(10).background(RoundedRectangle(cornerRadius:8).fill(Color.primary.opacity(0.065)))
             .overlay(RoundedRectangle(cornerRadius:8).strokeBorder(Color.accentColor.opacity(searchFocused ? 0.65 : 0),lineWidth:1))
-            .padding([.top,.horizontal],16)
+            .padding([.top,.horizontal],16).padding(.bottom,8)
+            .background(MenuAppearance.wash(MenuAppearance.sky))
 
             HStack(alignment:.top,spacing:14) {
                 VStack(alignment:.leading,spacing:8) {
@@ -144,7 +145,7 @@ struct StartMenu: View {
                                             icon(item,32)
                                             Text(item.name).font(.caption).lineLimit(2).multilineTextAlignment(.center)
                                         }.padding(5).frame(maxWidth:.infinity,minHeight:72,alignment:.top)
-                                            .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "pin"+item.key ? 0.09 : 0)))
+                                            .background(MenuAppearance.selection(hover == "pin"+item.key))
                                             .contentShape(Rectangle())
                                     }.buttonStyle(.plain).accessibilityLabel(item.name).help(item.name)
                                      .onHover { inside in updateHover("pin"+item.key, inside) }
@@ -162,8 +163,8 @@ struct StartMenu: View {
             HStack(spacing:14) {
                 Spacer()
                 if showPower {
-                    Button("Перезагрузить…") { power(.restart) }
-                    Button("Выключить…") { power(.shutdown) }
+                    Button { power(.restart) } label: { Label("Перезагрузить…", systemImage:"arrow.clockwise") }
+                    Button { power(.shutdown) } label: { Label("Выключить…", systemImage:"power") }
                 }
                 Button { showPower.toggle() } label: {
                     Image(systemName:"power").font(.system(size:16,weight:.medium))

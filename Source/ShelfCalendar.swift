@@ -70,7 +70,7 @@ struct ShelfCalendar: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private static let highlight = Color(red:0.48,green:0.84,blue:1)
+    private static let highlight = MenuAppearance.sky
 
     var body: some View {
         VStack(spacing:0) {
@@ -90,8 +90,7 @@ struct ShelfCalendar: View {
                 }.buttonStyle(.plain)
             }
             .padding(.horizontal,18).padding(.top,18).padding(.bottom,14)
-            .background(LinearGradient(colors:[Self.highlight.opacity(0.14),Self.highlight.opacity(0.02)],
-                                       startPoint:.topLeading,endPoint:.bottomTrailing))
+            .background(MenuAppearance.wash(Self.highlight))
             Divider()
             VStack(spacing:8) {
                 HStack(spacing:4) {

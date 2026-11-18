@@ -125,7 +125,7 @@ final class Tray: NSObject {
             if sourceString(source,kTISPropertyInputSourceID) == sourceString(current,kTISPropertyInputSourceID) { m.items.last?.state = .on }
         }
         m.addItem(.separator())
-        owner.add(m,"Настройки клавиатуры…") { self.openSettings("com.apple.Keyboard-Settings.extension") }
+        owner.add(m,"Настройки клавиатуры…", symbol:"keyboard") { self.openSettings("com.apple.Keyboard-Settings.extension") }
         popUp(m,above:button)
     }
     func scan() {
@@ -271,7 +271,10 @@ final class Tray: NSObject {
             controls = Array(controls.prefix(slots-1))
             controls.append(("Другие значки","chevron.up",nil,nil,{ button in
                 let menu = NSMenu()
-                for c in overflow { self.owner.add(menu,c.label) { c.click(button) } }
+                for c in overflow {
+                    self.owner.add(menu,c.label,symbol:c.symbol) { c.click(button) }
+                    if let icon = c.icon { menu.items.last?.image = icon }
+                }
                 self.popUp(menu,above:button)
             }))
         }

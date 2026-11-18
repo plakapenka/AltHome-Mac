@@ -34,7 +34,7 @@ struct StatusIconGrid: View {
                     }
                     .frame(width:24,height:24)
                     .frame(width:cell,height:cell)
-                    .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hovered == index ? 0.12 : 0)))
+                    .background(MenuAppearance.selection(hovered == index))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -52,5 +52,6 @@ struct StatusIconGrid: View {
         }
         .frame(width:size.width-16,height:size.height-16)
         .padding(8)
+        .background(MenuAppearance.wash(MenuAppearance.sky))
     }
 }
