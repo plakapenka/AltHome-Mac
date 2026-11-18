@@ -135,15 +135,18 @@ final class Tray: NSObject {
         dockPanel = panel
         panel.showPanel(takingKey: false, dismissOnOutsideClick: !dockPinned)
         dockMouseTimer?.invalidate()
-        guard !dockPinned else { return }
         var lastInside = Date()
-        dockMouseTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak panel, weak shelf, weak dockMirror] timer in
-            guard let panel, let shelf, panel.isVisible, !panel.isClosing else { timer.invalidate(); return }
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self, weak panel, weak shelf] timer in
+            guard let self, let panel, let shelf, panel.isVisible, !panel.isClosing else { timer.invalidate(); return }
+            self.dockMirror.samplePointer(in: panel)
+            guard !self.dockPinned else { return }
             let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
                                   height: panel.frame.maxY - shelf.frame.minY)
-            if dockMirror?.dragging == true || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
+            if self.dockMirror.dragging || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
             else if Date().timeIntervalSince(lastInside) > 0.28 { panel.dismiss(); timer.invalidate() }
         }
+        dockMouseTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     func openSettings(_ pane:String) {

@@ -67,6 +67,18 @@ final class DockMirror: ObservableObject {
     private let defaults: UserDefaults
     private var order: [String]
     var dragging = false
+    weak var pointerSurface: NSView?
+    @Published private(set) var pointerOffset: CGFloat?
+
+    func samplePointer(in panel: NSWindow) {
+        guard !dragging else { return }
+        var offset: CGFloat?
+        if let surface = pointerSurface, surface.window === panel {
+            let point = surface.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+            if surface.visibleRect.contains(point) { offset = point.x - surface.bounds.midX }
+        }
+        if offset != pointerOffset { pointerOffset = offset }
+    }
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -112,7 +124,6 @@ struct DockRow: View {
     @AppStorage("dockMagnifies") private var magnifies = true
     @AppStorage("dockZoom") private var zoom = 1.55
     @State private var dragged: String?
-    @State private var pointer: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let cornerRadius: CGFloat = 18
 
@@ -141,7 +152,8 @@ struct DockRow: View {
         let sizes = mirror.entries.map { entry -> CGFloat in
             if entry.role == "AXSeparatorDockItem" { center += 12; return 0 }
             defer { center += pitch }
-            guard magnifies, let pointer else { return side }
+            guard magnifies, let offset = mirror.pointerOffset else { return side }
+            let pointer = min(naturalWidth - 8 - pitch / 2, max(8 + pitch / 2, naturalWidth / 2 + offset))
             let distance = min(1, abs(center + pitch / 2 - pointer) / (2 * pitch))
             let weight = (1 + cos(.pi * distance)) / 2
             return side * (1 + (zoom - 1) * weight)
@@ -190,20 +202,24 @@ struct DockRow: View {
             }.padding(.horizontal, 8)
                 .coordinateSpace(name: "Dock strip")
                 .contentShape(Rectangle())
-                .onContinuousHover { phase in
-                    guard dragged == nil else { return }
-                    switch phase {
-                    case .active(let point):
-                        if magnifies { pointer = point.x * naturalWidth / max(contentWidth, 1) }
-                    case .ended: pointer = nil
-                    }
-                }
+                .background(DockPointerSurface(mirror: mirror))
         }
         .frame(width: width, height: (sizes.max() ?? side) + 14, alignment: .bottom)
         .background(plate)
         .onDisappear { mirror.dragging = false }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: pointer != nil)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: magnifies && mirror.pointerOffset != nil)
     }
+}
+
+// Read in the scrolling strip's coordinates, including when another application owns keyboard focus.
+private struct DockPointerSurface: NSViewRepresentable {
+    let mirror: DockMirror
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        mirror.pointerSurface = view
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {}
 }
 
 private struct DockPressStyle: ButtonStyle {
