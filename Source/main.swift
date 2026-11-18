@@ -189,7 +189,7 @@ final class Tile: ShelfButton {
     }
     required init?(coder: NSCoder) { fatalError() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+    override func hitTest(_ point: NSPoint) -> NSView? { isEnabled && super.hitTest(point) != nil ? self : nil }
     override func menu(for event: NSEvent) -> NSMenu? {
         previewHover?(false)
         return context?()
@@ -207,6 +207,48 @@ final class Tile: ShelfButton {
         super.mouseExited(with:event)
         previewHover?(false)
     }
+    func place(in targetFrame: NSRect, appearing: Bool, animate: Bool) {
+        let oldX = frame.minX
+        let modelX = layer?.position.x ?? 0
+        let visualX = oldX + (layer?.presentation()?.position.x ?? modelX) - modelX
+        if frame != targetFrame { frame = targetFrame }
+        guard let layer, animate else { return }
+        if appearing {
+            let fade = CABasicAnimation(keyPath:"opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.16
+            fade.timingFunction = CAMediaTimingFunction(name:.easeOut)
+            layer.add(fade, forKey:"tileAppearance")
+        }
+        // Lay out at the final position immediately; animate just the visual offset.
+        guard appearing || oldX != targetFrame.minX else { return }
+        let offset = appearing ? -5 : visualX - targetFrame.minX
+        let slide = CABasicAnimation(keyPath:appearing ? "position.y" : "position.x")
+        slide.isAdditive = true
+        slide.fromValue = offset
+        slide.toValue = 0
+        slide.duration = 0.18
+        slide.timingFunction = CAMediaTimingFunction(name:.easeOut)
+        layer.add(slide, forKey:appearing ? "tileRise" : "tileShift")
+    }
+
+    func fadeOut(completion: @escaping () -> Void) {
+        isEnabled = false
+        setAccessibilityElement(false)
+        toolTip = nil
+        press = nil
+        context = nil
+        previewHover = nil
+        alphaValue = CGFloat(layer?.presentation()?.opacity ?? 1)
+        layer?.removeAnimation(forKey:"tileAppearance")
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.13
+            context.timingFunction = CAMediaTimingFunction(name:.easeIn)
+            self.animator().alphaValue = 0
+        } completionHandler: { completion() }
+    }
+
     func update(image: NSImage, running: Bool, active: Bool, pinned: Bool, text: String?) {
         icon.image = image
         caption.stringValue = text ?? ""
@@ -249,6 +291,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let preview = WindowPreview()
     var pins: [Item] = []
     var tiles: [TileID:Tile] = [:]
+    private var fadingTiles: [TileID:Tile] = [:]
     var snapshots: [pid_t:[WindowEntry]] = [:]
     var layoutOrder: [TileID] = []
     var observed: [CGWindowID:pid_t] = [:]
@@ -470,17 +513,33 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         layoutOrder = tasks.map { $0.id }
         let keys = Set(layoutOrder)
+        let animateTiles = bar.isVisible && !ws.accessibilityDisplayShouldReduceMotion
         for key in Array(tiles.keys) where !keys.contains(key) {
             if let tile = tiles.removeValue(forKey:key) {
                 if preview.anchor === tile { preview.hide() }
-                tile.removeFromSuperview()
+                if animateTiles {
+                    fadingTiles[key] = tile
+                    tile.fadeOut { [weak self, weak tile] in
+                        guard let self, let tile, self.fadingTiles[key] === tile else { return }
+                        tile.removeFromSuperview()
+                        self.fadingTiles.removeValue(forKey:key)
+                        self.updateStripWidth()
+                    }
+                } else {
+                    tile.removeFromSuperview()
+                }
             }
         }
         var x: CGFloat = 0
         for task in tasks {
             let item = task.item
             let tile = tiles[task.id] ?? Tile(item)
-            if tile.superview == nil { tiles[task.id] = tile; strip.addSubview(tile) }
+            let appearing = tile.superview == nil
+            if appearing {
+                fadingTiles.removeValue(forKey:task.id)?.removeFromSuperview()
+                tiles[task.id] = tile
+                strip.addSubview(tile)
+            }
             tile.press = { [weak self] in
                 guard let self else { return }
                 if let app = task.app, let entry = task.entry, !app.isTerminated {
@@ -500,12 +559,17 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
             let width = Tile.preferredWidth(for:task.caption)
-            tile.frame = NSRect(x:x,y:0,width:width,height:44)
+            tile.place(in:NSRect(x:x,y:0,width:width,height:44), appearing:appearing, animate:animateTiles)
             x += width + 4
             let active = task.app?.isActive == true && (task.entry?.focused ?? true)
             tile.update(image:task.app?.icon ?? ws.icon(forFile:item.path),running:task.app != nil,active:active,pinned:pins.contains(where:{$0.key==item.key}),text:task.caption)
         }
-        strip.frame.size = NSSize(width:max(scroll.contentSize.width,x-4),height:44)
+        updateStripWidth()
+    }
+    private func updateStripWidth() {
+        let lastTile = tiles.values.map { $0.frame.maxX }.max() ?? 0
+        let lastFadingTile = fadingTiles.values.map { $0.frame.maxX }.max() ?? 0
+        strip.frame.size = NSSize(width:max(scroll.contentSize.width, lastTile, lastFadingTile),height:44)
     }
     private func updateDesktopLabel(_ showingDesktop: Bool) {
         let label = showingDesktop ? "Восстановить окна" : "Показать рабочий стол"
