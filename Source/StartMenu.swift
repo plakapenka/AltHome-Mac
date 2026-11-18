@@ -64,6 +64,49 @@ enum StartPowerAction {
     }
 }
 
+private struct PowerMenuButton: NSViewRepresentable {
+    let power: (StartPowerAction) -> Void
+
+    final class Coordinator: NSObject {
+        var power: (StartPowerAction) -> Void
+        init(_ power: @escaping (StartPowerAction) -> Void) { self.power = power }
+        let menu = NSMenu()
+        @objc func show(_ button: NSButton) {
+            guard let window = button.window, let screen = window.screen else { return }
+            let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
+            let visible = screen.visibleFrame
+            let size = menu.size
+            let x = max(visible.minX + 4, min(anchor.maxX - size.width, visible.maxX - size.width - 4))
+            let top = min(visible.maxY - 4, anchor.maxY + 5 + size.height)
+            let point = button.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: top)), from: nil)
+            menu.popUp(positioning: nil, at: point, in: button)
+        }
+        @objc func restart() { power(.restart) }
+        @objc func shutdown() { power(.shutdown) }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(power) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
+        let button = NSButton(image: image ?? NSImage(), target: context.coordinator, action: #selector(Coordinator.show(_:)))
+        button.isBordered = false
+        button.toolTip = "Питание"
+        button.setAccessibilityLabel("Питание")
+        let menu = context.coordinator.menu
+        let restart = menu.addItem(withTitle: "Перезапуск…", action: #selector(Coordinator.restart), keyEquivalent: "")
+        restart.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        restart.target = context.coordinator
+        let shutdown = menu.addItem(withTitle: "Выключение…", action: #selector(Coordinator.shutdown), keyEquivalent: "")
+        shutdown.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        shutdown.target = context.coordinator
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) { context.coordinator.power = power }
+}
+
 struct StartMenu: View {
     @ObservedObject var library: StartLibrary
     let size: CGSize
@@ -161,15 +204,7 @@ struct StartMenu: View {
             Divider()
             HStack(spacing:14) {
                 Spacer()
-                Menu {
-                    Button { power(.restart) } label: { Label("Перезапуск…", systemImage:"arrow.clockwise") }
-                    Button { power(.shutdown) } label: { Label("Выключение…", systemImage:"power") }
-                } label: {
-                    Image(systemName:"power").font(.system(size:16,weight:.medium))
-                        .frame(width:30,height:28).contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("Питание").accessibilityLabel("Питание")
+                PowerMenuButton(power: power).frame(width: 30, height: 28)
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
          .background(Color(nsColor:.windowBackgroundColor))
