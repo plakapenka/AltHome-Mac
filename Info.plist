@@ -4,8 +4,8 @@
 <key>CFBundleName</key><string>TaskShelf</string>
 <key>CFBundleExecutable</key><string>TaskShelf</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.33</string>
-<key>CFBundleVersion</key><string>34</string>
+<key>CFBundleShortVersionString</key><string>1.34</string>
+<key>CFBundleVersion</key><string>35</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSAppleEventsUsageDescription</key><string>TaskShelf открывает системный диалог выключения или перезагрузки по вашему выбору.</string>

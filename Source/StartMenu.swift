@@ -170,5 +170,6 @@ struct StartMenu: View {
                 }.buttonStyle(.plain).help("Питание").accessibilityLabel("Питание")
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
+         .background(Color(nsColor:.windowBackgroundColor))
     }
 }

@@ -53,7 +53,8 @@ final class Tray: NSObject, NSPopoverDelegate {
     var surface: NSView!
     private var popover: NSPopover?
     private weak var popoverAnchor: NSButton?
-    private var clickMonitors: [Any] = []
+    private let popoverClicks = OutsideClickMonitor()
+    private var startPanel: StartPanel?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
@@ -76,24 +77,31 @@ final class Tray: NSObject, NSPopoverDelegate {
         if let url = URL(string:"x-apple.systempreferences:"+pane) { owner.ws.open(url) }
     }
     @objc func showApple() {
-        if dismissPopover(for:apple) { return }
+        if let startPanel, startPanel.isVisible {
+            if startPanel.isClosing { startPanel.showMenu() } else { startPanel.dismiss() }
+            return
+        }
+        popover?.performClose(nil)
+        guard let shelf = apple.window, let screen = shelf.screen else { return }
         startLibrary.refresh()
-        let screen = apple.window?.screen?.visibleFrame.size ?? NSSize(width:600,height:540)
-        let size = NSSize(width:min(580,screen.width-32),height:min(440,screen.height-80))
+        let bounds = screen.visibleFrame
+        let size = NSSize(width:min(580,bounds.width-32),height:min(440,bounds.maxY-shelf.frame.maxY-16))
         let menu = StartMenu(library:startLibrary, size:size, launch:{ [weak self] item in
-            self?.popover?.performClose(nil)
+            self?.startPanel?.dismiss()
             self?.owner.launch(item)
         }, browse:{ [weak self] in
             self?.chooseStartPin()
         }, power:{ [weak self] action in
-            self?.popover?.performClose(nil)
+            self?.startPanel?.dismiss()
             do { try action.requestDialog() } catch { self?.owner.notify(error.localizedDescription) }
         })
-        present(NSHostingController(rootView:menu),above:apple,size:size,dismissOnOutsideClick:true)
+        let panel = StartPanel(menu:menu,above:apple,in:shelf,screen:screen)
+        startPanel = panel
+        panel.showMenu()
     }
 
     private func chooseStartPin() {
-        popover?.performClose(nil)
+        startPanel?.dismiss()
         let chooser = NSOpenPanel()
         chooser.directoryURL = URL(fileURLWithPath:"/Applications")
         chooser.allowedContentTypes = [.applicationBundle]
@@ -198,37 +206,18 @@ final class Tray: NSObject, NSPopoverDelegate {
     }
 
     private func dismissPopover(for anchor: NSButton) -> Bool {
+        startPanel?.dismiss()
         let wasOpen = popover?.isShown == true && popoverAnchor === anchor
         popover?.performClose(nil)
         return wasOpen
     }
     func popoverDidShow(_ notification: Notification) {
-        guard let panel = notification.object as? NSPopover else { return }
-        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching:clicks, handler:{ [weak panel] _ in
-            panel?.performClose(nil)
-        }) { clickMonitors.append(monitor) }
-        if let monitor = NSEvent.addLocalMonitorForEvents(matching:clicks, handler:{ [weak self, weak panel] event in
-            guard let panel, let window = panel.contentViewController?.view.window else { return event }
-            var target = event.window
-            while let current = target {
-                if current === window { return event }
-                target = current.parent
-            }
-            // The anchor's normal button action already toggles its popover.
-            if event.type == .leftMouseDown, let anchor = self?.popoverAnchor,
-               event.window === anchor.window, anchor.bounds.contains(anchor.convert(event.locationInWindow, from:nil)) {
-                return event
-            }
-            panel.performClose(nil)
-            return event
-        }) { clickMonitors.append(monitor) }
+        guard let panel = notification.object as? NSPopover,
+              let window = panel.contentViewController?.view.window, let anchor = popoverAnchor else { return }
+        popoverClicks.start(window:window,anchor:anchor) { [weak panel] in panel?.performClose(nil) }
     }
 
-    func popoverWillClose(_ notification: Notification) {
-        clickMonitors.forEach(NSEvent.removeMonitor)
-        clickMonitors.removeAll()
-    }
+    func popoverWillClose(_ notification: Notification) { popoverClicks.stop() }
 
     private func present(_ controller:NSViewController, above anchor:NSButton, size:NSSize? = nil,
                          dismissOnOutsideClick:Bool = false) {
