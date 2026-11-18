@@ -154,25 +154,93 @@ private struct WiFiControls: View {
         }
     }
 
-    var body: some View {
-        VStack(alignment:.leading,spacing:10) {
-            HStack(spacing: 10) {
-                Image(systemName: power ? "wifi" : "wifi.slash")
-                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(power ? Color.blue : Color.secondary, in: Circle())
-                    .accessibilityHidden(true)
-                Text(associated ? (connected ?? "Подключено") : (power ? "Нет подключения" : "Wi-Fi выключен"))
-                    .font(.body.weight(.semibold)).lineLimit(1)
-                Spacer(minLength: 4)
-                WirelessSwitch(title: "Wi-Fi", isOn: Binding(get: { power }, set: setPower))
-                    .disabled(connecting || interface == nil)
+    private var connectionSummary: some View {
+        HStack(spacing: 11) {
+            Image(systemName: power ? "wifi" : "wifi.slash")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(associated ? Color.white : .secondary)
+                .frame(width: 36, height: 36)
+                .background(associated ? Color.blue : Color.primary.opacity(0.08), in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(connected ?? "Wi-Fi")
+                    .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text(associated ? "Подключено" : (power ? "Нет подключения" : "Выключено"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
+            Spacer(minLength: 6)
+            WirelessSwitch(title: "Wi-Fi", isOn: Binding(get: { power }, set: setPower))
+                .disabled(connecting || interface == nil)
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LinearGradient(colors: [Color.blue.opacity(associated ? 0.18 : 0.04), Color.primary.opacity(0.045)],
+                                     startPoint: .leading, endPoint: .trailing))
+        }
+    }
+
+    private func networkRow(_ choice: NetworkChoice) -> some View {
+        let strength = choice.network.rssiValue
+        let signal = strength >= -60 ? 1.0 : (strength >= -75 ? 0.66 : 0.33)
+        let secured = !choice.network.supportsSecurity(.none)
+        return Button {
+            selected = choice
+            password = ""
+            message = ""
+        } label: {
+            HStack(spacing: 10) {
+                Text(choice.id).lineLimit(1)
+                Spacer(minLength: 8)
+                if secured {
+                    Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                Image(systemName: "wifi", variableValue: signal)
+                    .font(.system(size: 13, weight: .medium)).frame(width: 18)
+            }
+            .padding(.horizontal, 4).frame(height: 33)
+        }
+        .buttonStyle(MenuRowStyle())
+        .accessibilityLabel(choice.id)
+        .accessibilityValue(secured ? "Защищённая сеть" : "Открытая сеть")
+    }
+
+    private var networkList: some View {
+        let nearby = networks.filter { $0.id != connected }
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(connected == nil ? "Доступные сети" : "Другие сети")
+                    .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Button(action: scan) {
+                    ZStack {
+                        if busy { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium)) }
+                    }.frame(width: 26, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityLabel("Обновить список сетей").disabled(busy)
+            }.padding(.leading, 12).padding(.trailing, 5)
+            if nearby.isEmpty {
+                if message.isEmpty {
+                    Text(busy ? "Поиск сетей…" : "Других сетей поблизости нет")
+                        .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8)
+                }
+            } else {
+                ScrollView {
+                    VStack(spacing: 1) {
+                        ForEach(nearby) { networkRow($0) }
+                    }.padding(.trailing, 2)
+                }.frame(height: CGFloat(min(nearby.count, 5)) * 34 - 1)
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            connectionSummary
             if power {
-                Divider()
                 if access.status != .authorizedAlways {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Доступные сети").font(.subheadline.weight(.semibold))
                         Text("Для показа названий сетей macOS нужен доступ к геолокации.")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         if access.status == .notDetermined {
@@ -180,53 +248,28 @@ private struct WiFiControls: View {
                         } else {
                             Button("Настройки геолокации…") { openSettings("com.apple.preference.security?Privacy_LocationServices") }
                         }
-                    }
+                    }.padding(.horizontal, 10)
                 } else if let choice = selected {
-                    Text(choice.id).fontWeight(.semibold)
-                    if !choice.network.supportsSecurity(.none) {
-                        SecureField("Пароль сети",text:$password).onSubmit { connect(choice) }
-                    }
-                    HStack {
-                        Button("Назад") { selected = nil; password = ""; message = "" }
-                        Spacer()
-                        Button("Подключиться") { connect(choice) }.disabled(busy)
-                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(choice.id).font(.headline).lineLimit(1)
+                        if !choice.network.supportsSecurity(.none) {
+                            SecureField("Пароль сети", text: $password).onSubmit { connect(choice) }
+                        }
+                        HStack {
+                            Button("Назад") { selected = nil; password = ""; message = "" }
+                            Spacer()
+                            Button("Подключиться") { connect(choice) }.buttonStyle(.borderedProminent).disabled(busy)
+                        }
+                    }.padding(.horizontal, 10).padding(.vertical, 4)
                 } else {
-                    HStack {
-                        Text("Доступные сети").font(.subheadline.weight(.semibold))
-                        Spacer()
-                        if busy { ProgressView().controlSize(.small) }
-                        Button(action:scan) { Image(systemName:"arrow.clockwise") }
-                            .buttonStyle(.borderless).accessibilityLabel("Обновить список сетей").disabled(busy)
-                    }
-                    ScrollView {
-                        VStack(spacing:1) {
-                            ForEach(networks) { choice in
-                                Button {
-                                    if choice.id != connected { selected = choice; password = ""; message = "" }
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "wifi", variableValue: choice.network.rssiValue >= -60 ? 1 : (choice.network.rssiValue >= -75 ? 0.66 : 0.33))
-                                            .foregroundStyle(choice.id == connected ? Color.accentColor : .secondary)
-                                            .frame(width: 22)
-                                        Text(choice.id).lineLimit(1)
-                                        Spacer()
-                                        if choice.id == connected { Image(systemName:"checkmark").foregroundStyle(Color.accentColor) }
-                                        else if !choice.network.supportsSecurity(.none) { Image(systemName:"lock.fill").font(.caption).foregroundStyle(.secondary) }
-                                    }.padding(.vertical,5).contentShape(Rectangle())
-                                }.buttonStyle(MenuRowStyle(selected: choice.id == connected))
-                            }
-                            if networks.isEmpty && message.isEmpty { Text(busy ? "Поиск сетей…" : "Сети поблизости не найдены").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
-                        }.frame(maxWidth:.infinity,alignment:.leading)
-                    }.frame(height: min(168, CGFloat(max(networks.count, 1)) * 34))
+                    networkList
                 }
             }
-            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10) }
         }
         .onAppear { load(); scan() }
         .onChange(of: access.status) { _ in load(); scan() }
         .onDisappear { scanID = nil }
-
     }
 }
 
@@ -358,14 +401,21 @@ struct TrayControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if initialPage == .wifi {
-                Picker("Беспроводные подключения", selection: $wirelessPage) {
-                    Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
-                    Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
-                    Text(TrayPage.airDrop.rawValue).tag(TrayPage.airDrop)
+                HStack(spacing: 4) {
+                    ForEach([TrayPage.wifi, .bluetooth, .airDrop], id: \.self) { tab in
+                        Button { wirelessPage = tab } label: {
+                            Text(tab.rawValue)
+                                .font(.system(size: 12, weight: wirelessPage == tab ? .semibold : .medium))
+                                .foregroundStyle(wirelessPage == tab ? .primary : .secondary)
+                                .frame(maxWidth: .infinity).frame(height: 28)
+                                .background(MenuAppearance.selection(wirelessPage == tab))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(wirelessPage == tab ? .isSelected : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 10).padding(.top, 10)
+                .padding(.horizontal, 13).padding(.top, 11).padding(.bottom, 2)
             }
 
             Group {
@@ -389,8 +439,8 @@ struct TrayControls: View {
                 case .battery: BatteryControls(display: display)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                .padding(page == .wifi ? 0 : 12)
+                .background(Color.primary.opacity(page == .wifi ? 0 : 0.045), in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 10).padding(.vertical, 8)
 
             Divider()
@@ -402,6 +452,6 @@ struct TrayControls: View {
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                 }.foregroundStyle(.secondary)
             }.buttonStyle(MenuRowStyle()).padding(.horizontal, 7).padding(.vertical, 4)
-        }.frame(width: initialPage == .wifi ? 332 : 310).fixedSize(horizontal: false, vertical: true)
+        }.frame(width: initialPage == .wifi ? 336 : 310).fixedSize(horizontal: false, vertical: true)
     }
 }
