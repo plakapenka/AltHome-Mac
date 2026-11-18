@@ -70,6 +70,10 @@ struct ShelfCalendar: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    private static let clockFormat = Date.VerbatimFormatStyle(
+        format: "\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits):\(second: .twoDigits)",
+        timeZone: .autoupdatingCurrent, calendar: .autoupdatingCurrent
+    )
     private static let highlight = MenuAppearance.sky
 
     var body: some View {
@@ -82,12 +86,19 @@ struct ShelfCalendar: View {
                         .font(.system(size:30,weight:.semibold)).tracking(-0.8)
                 }
                 Spacer()
-                Button { choose(Date()) } label: {
-                    Text("Сегодня").font(.system(size:12,weight:.medium))
-                        .padding(.horizontal,10).padding(.vertical,5)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
-                        .contentShape(Capsule())
-                }.buttonStyle(.plain)
+                VStack(alignment: .trailing, spacing: 4) {
+                    TimelineView(.periodic(from: .now, by: 1)) { tick in
+                        Text(tick.date.formatted(Self.clockFormat))
+                            .font(.system(size: 16, weight: .medium)).monospacedDigit()
+                            .fixedSize()
+                    }
+                    Button { choose(Date()) } label: {
+                        Text("Сегодня").font(.system(size:12,weight:.medium))
+                            .padding(.horizontal,10).padding(.vertical,5)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                            .contentShape(Capsule())
+                    }.buttonStyle(.plain)
+                }
             }
             .padding(.horizontal,18).padding(.top,18).padding(.bottom,14)
             .background(MenuAppearance.wash(Self.highlight))
