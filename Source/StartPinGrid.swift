@@ -150,7 +150,9 @@ struct StartPinGrid: NSViewRepresentable {
             let point = window.convertPoint(toScreen: event.locationInWindow)
             if lift == nil {
                 guard hypot(point.x - down.x, point.y - down.y) >= 5 else { return }
-                lift = DragImage(source: self, down: down)
+                effectiveAppearance.performAsCurrentDrawingAppearance {
+                    lift = DragImage(source: self, down: down, backgroundColor: .windowBackgroundColor.withAlphaComponent(1))
+                }
             }
             guard let lift else { return }
             lift.follow(point)
