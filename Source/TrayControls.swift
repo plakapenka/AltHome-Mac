@@ -45,6 +45,19 @@ private func networkChoices(_ networks: Set<CWNetwork>) -> [NetworkChoice] {
     }
 }
 
+private struct WirelessSwitch: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(title, isOn: $isOn)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .tint(.blue)
+            .environment(\.controlActiveState, .active)
+    }
+}
+
 private struct WiFiControls: View {
     @State private var power = false
     @State private var connected: String?
@@ -123,11 +136,7 @@ private struct WiFiControls: View {
                 Text(associated ? (connected ?? "Подключено") : (power ? "Нет подключения" : "Выключено"))
                     .foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Toggle("Wi-Fi", isOn: Binding(get: { power }, set: setPower))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(.blue)
-                    .environment(\.controlActiveState, .active)
+                WirelessSwitch(title: "Wi-Fi", isOn: Binding(get: { power }, set: setPower))
                     .disabled(connecting || interface == nil)
             }
             if power {
@@ -172,6 +181,78 @@ private struct WiFiControls: View {
             }
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
         }.onAppear { load(); if power && networks.isEmpty { scan() } }
+    }
+}
+
+// IOBluetooth exposes controller power preferences at runtime. Keep the
+// settings link usable if a future framework omits these entry points.
+private enum BluetoothPower {
+    private static let framework = dlopen("/System/Library/Frameworks/IOBluetooth.framework/IOBluetooth", RTLD_LAZY)
+    private typealias Getter = @convention(c) () -> Int32
+    typealias Setter = @convention(c) (Int32) -> Void
+    private static let read = framework.flatMap { dlsym($0, "IOBluetoothPreferenceGetControllerPowerState") }
+        .map { unsafeBitCast($0, to: Getter.self) }
+    static let write = framework.flatMap { dlsym($0, "IOBluetoothPreferenceSetControllerPowerState") }
+        .map { unsafeBitCast($0, to: Setter.self) }
+
+    static var current: Bool? {
+        switch read?() {
+        case 0: return false
+        case 1: return true
+        default: return nil
+        }
+    }
+}
+
+private struct BluetoothControls: View {
+    @State private var power = BluetoothPower.current
+    @State private var pending: Bool?
+    @State private var deadline = Date.distantPast
+    @State private var message = ""
+    @State private var devices: [IOBluetoothDevice] = []
+
+    private func refresh() {
+        power = BluetoothPower.current
+        if let pending {
+            if power == pending {
+                self.pending = nil
+            } else if Date() >= deadline {
+                self.pending = nil
+                message = "Не удалось переключить Bluetooth."
+            }
+        }
+        if power == true && CBManager.authorization == .allowedAlways {
+            devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []).filter { $0.isConnected() }
+        } else {
+            devices = []
+        }
+    }
+
+    private func setPower(_ enabled: Bool) {
+        guard let write = BluetoothPower.write, pending == nil else { return }
+        message = ""
+        pending = enabled
+        deadline = Date().addingTimeInterval(5)
+        write(enabled ? 1 : 0)
+        refresh()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(power.map { $0 ? "Включено" : "Выключено" } ?? "Недоступно")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                WirelessSwitch(title: "Bluetooth", isOn: Binding(get: { pending ?? power ?? false }, set: setPower))
+                    .disabled(pending != nil || power == nil || BluetoothPower.write == nil)
+            }
+            ForEach(devices.prefix(6), id: \.self) { device in
+                Label(device.name ?? "Устройство", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+            }
+            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+        }
+        .onAppear(perform: refresh)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in refresh() }
     }
 }
 
@@ -245,14 +326,7 @@ struct TrayControls: View {
             switch page {
             case .wifi: WiFiControls()
             case .sound: SoundControls()
-            case .bluetooth:
-                Text(IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON ? "Включено" : "Выключено")
-                if CBManager.authorization == .allowedAlways {
-                    let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []).filter { $0.isConnected() }
-                    ForEach(0..<min(devices.count,6),id:\.self) { i in
-                        Label(devices[i].name ?? "Устройство",systemImage:"checkmark.circle").foregroundStyle(.secondary)
-                    }
-                }
+            case .bluetooth: BluetoothControls()
             case .battery:
                 if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
                    let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
