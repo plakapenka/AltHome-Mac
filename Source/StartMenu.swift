@@ -52,13 +52,14 @@ final class StartLibrary: ObservableObject {
     }
 }
 
-enum StartPowerAction {
-    case sleep, restart, shutdown
+enum LoginWindowAction {
+    case sleep, restart, shutdown, logOut
 
     func perform() throws {
         NSApp.activate(ignoringOtherApps:true)
         let eventID: AEEventID
         switch self {
+        case .logOut: eventID = AEEventID(kAELogOut)
         case .sleep: eventID = AEEventID(kAESleep)
         case .restart: eventID = AEEventID(kAEShowRestartDialog)
         case .shutdown: eventID = AEEventID(kAEShowShutdownDialog)
@@ -115,52 +116,47 @@ private struct StartFooterIcon: ViewModifier {
     }
 }
 
-private struct PowerMenuButton: NSViewRepresentable {
-    let power: (StartPowerAction) -> Void
+private struct StartActionMenuButton: NSViewRepresentable {
+    let title: String
+    var symbol: String?
+    let makeMenu: () -> NSMenu
 
     final class Coordinator: NSObject {
-        var power: (StartPowerAction) -> Void
-        init(_ power: @escaping (StartPowerAction) -> Void) { self.power = power }
-        let menu = NSMenu()
+        var makeMenu: () -> NSMenu
+        init(_ makeMenu: @escaping () -> NSMenu) { self.makeMenu = makeMenu }
         @objc func show(_ button: NSButton) {
             guard let window = button.window, let screen = window.screen else { return }
             let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
             let visible = screen.visibleFrame
+            let menu = makeMenu()
             let size = menu.size
             let x = max(visible.minX + 4, min(anchor.minX, visible.maxX - size.width - 4))
             let top = min(visible.maxY - 4, anchor.maxY + 5 + size.height)
             let point = button.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: top)), from: nil)
             menu.popUp(positioning: nil, at: point, in: button)
         }
-        @objc func sleep() { power(.sleep) }
-        @objc func restart() { power(.restart) }
-        @objc func shutdown() { power(.shutdown) }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(power) }
+    func makeCoordinator() -> Coordinator { Coordinator(makeMenu) }
 
     func makeNSView(context: Context) -> NSButton {
-        let image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
-        let button = NSButton(image: image ?? NSImage(), target: context.coordinator, action: #selector(Coordinator.show(_:)))
+        let button = NSButton(frame: .zero)
+        button.title = ""
         button.isBordered = false
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.show(_:))
+        if let symbol {
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
+            button.imagePosition = .imageOnly
+        }
         button.contentTintColor = .labelColor
-        button.toolTip = "Питание"
-        button.setAccessibilityLabel("Питание")
-        let menu = context.coordinator.menu
-        let sleep = menu.addItem(withTitle: "Режим сна", action: #selector(Coordinator.sleep), keyEquivalent: "")
-        sleep.image = NSImage(systemSymbolName: "moon", accessibilityDescription: nil)
-        sleep.target = context.coordinator
-        let restart = menu.addItem(withTitle: "Перезапуск", action: #selector(Coordinator.restart), keyEquivalent: "")
-        restart.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
-        restart.target = context.coordinator
-        let shutdown = menu.addItem(withTitle: "Выключение", action: #selector(Coordinator.shutdown), keyEquivalent: "")
-        shutdown.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
-        shutdown.target = context.coordinator
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
         return button
     }
 
-    func updateNSView(_ button: NSButton, context: Context) { context.coordinator.power = power }
+    func updateNSView(_ button: NSButton, context: Context) { context.coordinator.makeMenu = makeMenu }
 }
 
 struct StartMenu: View {
@@ -169,7 +165,8 @@ struct StartMenu: View {
     let launch: (Item) -> Void
     let browse: () -> Void
     let settings: () -> Void
-    let power: (StartPowerAction) -> Void
+    let accountMenu: () -> NSMenu
+    let powerMenu: () -> NSMenu
     let focusSearch = PassthroughSubject<Void,Never>()
     @FocusState private var searchFocused: Bool
     @State private var query = ""
@@ -260,7 +257,11 @@ struct StartMenu: View {
             }.padding(16).frame(maxHeight:.infinity)
             Divider()
             HStack(spacing:8) {
-                StartUserLabel()
+                StartUserLabel().accessibilityHidden(true)
+                    .padding(.horizontal, 5).frame(height: 32)
+                    .background(MenuAppearance.selection(hover == "account"))
+                    .overlay(StartActionMenuButton(title: "Меню пользователя, " + NSFullUserName(), makeMenu: accountMenu))
+                    .onHover { updateHover("account", $0) }
                 Spacer(minLength: 8)
                 Button(action: settings) {
                     Image(systemName: "gearshape")
@@ -273,7 +274,7 @@ struct StartMenu: View {
                 .modifier(StartFooterIcon())
                 .accessibilityLabel("Системные настройки")
                 .help("Системные настройки")
-                PowerMenuButton(power: power).modifier(StartFooterIcon())
+                StartActionMenuButton(title: "Питание", symbol: "power", makeMenu: powerMenu).modifier(StartFooterIcon())
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
          .background(Color(nsColor:.windowBackgroundColor))

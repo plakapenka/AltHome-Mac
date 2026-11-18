@@ -208,16 +208,54 @@ final class Tray: NSObject {
                 return
             }
             self.owner.launch(Item(url))
-        }, power:{ [weak self] action in
-            self?.slidingPanel?.dismiss()
-            do { try action.perform() } catch { self?.owner.notify(error.localizedDescription) }
-        })
+        }, accountMenu: { [weak self] in self?.startAccountMenu() ?? NSMenu() },
+           powerMenu: { [weak self] in self?.startPowerMenu() ?? NSMenu() })
         let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),above:apple,in:shelf,screen:screen) { window in
             menu.focusSearch.send()
             if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
         }
         slidingPanel = panel
         panel.showPanel()
+    }
+
+    private func startAccountMenu() -> NSMenu {
+        let menu = NSMenu()
+        owner.add(menu, "Заблокировать экран", symbol: "lock") {
+            self.slidingPanel?.dismiss()
+            self.lockScreen()
+        }
+        menu.addItem(.separator())
+        owner.add(menu, "Завершить сеанс", symbol: "rectangle.portrait.and.arrow.right") { self.perform(.logOut) }
+        return menu
+    }
+
+    private func startPowerMenu() -> NSMenu {
+        let menu = NSMenu()
+        owner.add(menu, "Режим сна", symbol: "moon") { self.perform(.sleep) }
+        owner.add(menu, "Перезапуск", symbol: "arrow.clockwise") { self.perform(.restart) }
+        owner.add(menu, "Выключение", symbol: "power") { self.perform(.shutdown) }
+        return menu
+    }
+
+    private func perform(_ action: LoginWindowAction) {
+        slidingPanel?.dismiss()
+        do { try action.perform() } catch { owner.notify(error.localizedDescription) }
+    }
+
+    private func lockScreen() {
+        guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
+        // Use Finder's system Apple menu so the action also works with a localized menu title.
+        guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first,
+              let bar = element(AXUIElementCreateApplication(finder.processIdentifier), kAXMenuBarAttribute),
+              let apple = (attr(bar, kAXChildrenAttribute) as? [AXUIElement])?.first,
+              let menu = (attr(apple, kAXChildrenAttribute) as? [AXUIElement])?.first,
+              let items = attr(menu, kAXChildrenAttribute) as? [AXUIElement],
+              let lock = items.first(where: { attr($0, kAXIdentifierAttribute) as? String == "_lockScreenRequested:" }),
+              attr(lock, kAXEnabledAttribute) as? Bool == true,
+              AXUIElementPerformAction(lock, kAXPressAction as CFString) == .success else {
+            owner.notify("Не удалось заблокировать экран. Используйте Control–Command–Q.")
+            return
+        }
     }
 
     private func chooseStartPin() {
