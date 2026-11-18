@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import Carbon
 
 final class StartLibrary: ObservableObject {
@@ -69,6 +70,8 @@ struct StartMenu: View {
     let launch: (Item) -> Void
     let browse: () -> Void
     let power: (StartPowerAction) -> Void
+    let focusSearch = PassthroughSubject<Void,Never>()
+    @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var hover: String?
     @State private var showPower = false
@@ -106,8 +109,12 @@ struct StartMenu: View {
             HStack(spacing:9) {
                 Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
                 TextField("Найти программу", text:$query).textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .onAppear { searchFocused = true }
+                    .onReceive(focusSearch) { _ in searchFocused = true }
             }
             .padding(10).background(RoundedRectangle(cornerRadius:8).fill(Color.primary.opacity(0.065)))
+            .overlay(RoundedRectangle(cornerRadius:8).strokeBorder(Color.accentColor.opacity(searchFocused ? 0.65 : 0),lineWidth:1))
             .padding([.top,.horizontal],16)
 
             HStack(alignment:.top,spacing:14) {

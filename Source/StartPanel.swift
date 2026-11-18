@@ -82,6 +82,9 @@ final class StartPanel: NSPanel {
             if parent == nil { shelf.addChildWindow(self, ordered:.above) }
         }
         makeKeyAndOrderFront(nil)
+        card.layoutSubtreeIfNeeded()
+        card.rootView.focusSearch.send()
+        if let editor = firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
         outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
         animate(open:true)
     }
