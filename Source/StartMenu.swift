@@ -46,6 +46,18 @@ final class StartLibrary: ObservableObject {
         guard pins.contains(where:{ $0.key == item.key }) != pinned else { return }
         var updated = pins.filter { $0.key != item.key }
         if pinned { updated.append(item) }
+        savePins(updated)
+    }
+
+    func movePin(_ key: String, to index: Int) {
+        guard let source = pins.firstIndex(where: { $0.key == key }),
+              pins.indices.contains(index), source != index else { return }
+        var updated = pins
+        updated.insert(updated.remove(at: source), at: index)
+        savePins(updated)
+    }
+
+    private func savePins(_ updated: [Item]) {
         guard let data = try? JSONEncoder().encode(updated) else { return }
         defaults.set(data, forKey:pinKey)
         pins = updated
@@ -234,20 +246,9 @@ struct StartMenu: View {
                                 Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
                                     .font(.callout).foregroundStyle(.secondary).padding(.top,8)
                             }
-                            LazyVGrid(columns:[GridItem(.adaptive(minimum:72),spacing:4)],spacing:4) {
-                                ForEach(library.pins,id:\.key) { item in
-                                    Button { launch(item) } label: {
-                                        VStack(spacing:5) {
-                                            icon(item,32)
-                                            Text(item.name).font(.caption).lineLimit(2).multilineTextAlignment(.center)
-                                        }.padding(5).frame(maxWidth:.infinity,minHeight:72,alignment:.top)
-                                            .background(MenuAppearance.selection(hover == "pin"+item.key))
-                                            .contentShape(Rectangle())
-                                    }.buttonStyle(.plain).accessibilityLabel(item.name).help(item.name)
-                                     .onHover { inside in updateHover("pin"+item.key, inside) }
-                                     .contextMenu { Button("Открепить") { library.setPinned(item,false) } }
-                                }
-                            }
+                            StartPinGrid(pins: library.pins, launch: launch,
+                                         unpin: { library.setPinned($0, false) }, move: library.movePin)
+                                .frame(height: StartPinGrid.height(count: library.pins.count, width: area.size.width))
                             Color.clear.frame(maxWidth:.infinity,minHeight:12,maxHeight:.infinity)
                                 .contentShape(Rectangle())
                                 .contextMenu { Button("Добавить программу…", action:browse) }
