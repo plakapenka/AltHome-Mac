@@ -219,7 +219,8 @@ final class Tile: ShelfButton {
         let point = NSPoint(x: cursor.x, y: pressPoint.y)
         highlight(false)
         if !dragging, let window {
-            dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint))
+            dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint),
+                                  backgroundColor: window.backgroundColor)
         }
         dragging = true
         if let window {

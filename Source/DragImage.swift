@@ -6,7 +6,7 @@ final class DragImage {
     private weak var source: NSView?
     private let grab: NSPoint
 
-    init?(source: NSView, down: NSPoint, image supplied: NSImage? = nil) {
+    init?(source: NSView, down: NSPoint, image supplied: NSImage? = nil, backgroundColor: NSColor? = nil) {
         guard let window = source.window else { return nil }
         let image: NSImage
         if let supplied { image = supplied }
@@ -29,6 +29,13 @@ final class DragImage {
         panel.level = NSWindow.Level(rawValue: window.level.rawValue + 1)
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
         let picture = NSImageView(frame: NSRect(origin: .zero, size: rect.size))
+        if let backgroundColor {
+            picture.wantsLayer = true
+            picture.layer?.backgroundColor = backgroundColor.cgColor
+            picture.layer?.cornerRadius = source.layer?.cornerRadius ?? 0
+            picture.layer?.cornerCurve = .continuous
+            picture.layer?.masksToBounds = true
+        }
         picture.image = image
         picture.imageScaling = .scaleAxesIndependently
         panel.contentView = picture
