@@ -55,7 +55,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
     return result
 }
 
-final class Tray {
+final class Tray: NSObject, NSPopoverDelegate {
     unowned let owner: Delegate
     let apple = ShelfButton(frame:.zero)
     var buttons: [ShelfButton] = []
@@ -65,6 +65,7 @@ final class Tray {
     var surface: NSView!
     private var popover: NSPopover?
     private weak var popoverAnchor: NSButton?
+    private var clickMonitors: [Any] = []
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
@@ -199,10 +200,40 @@ final class Tray {
         popover?.performClose(nil)
         return wasOpen
     }
-    private func present(_ controller:NSViewController, above anchor:NSButton, size:NSSize? = nil) {
+    func popoverDidShow(_ notification: Notification) {
+        guard let panel = notification.object as? NSPopover else { return }
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching:clicks, handler:{ [weak panel] _ in
+            panel?.performClose(nil)
+        }) { clickMonitors.append(monitor) }
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching:clicks, handler:{ [weak self, weak panel] event in
+            guard let panel, let window = panel.contentViewController?.view.window else { return event }
+            var target = event.window
+            while let current = target {
+                if current === window { return event }
+                target = current.parent
+            }
+            // The anchor's normal button action already toggles its popover.
+            if event.type == .leftMouseDown, let anchor = self?.popoverAnchor,
+               event.window === anchor.window, anchor.bounds.contains(anchor.convert(event.locationInWindow, from:nil)) {
+                return event
+            }
+            panel.performClose(nil)
+            return event
+        }) { clickMonitors.append(monitor) }
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        clickMonitors.forEach(NSEvent.removeMonitor)
+        clickMonitors.removeAll()
+    }
+
+    private func present(_ controller:NSViewController, above anchor:NSButton, size:NSSize? = nil,
+                         dismissOnOutsideClick:Bool = false) {
         let panel = NSPopover()
         panel.animates = false
-        panel.behavior = .transient
+        panel.behavior = dismissOnOutsideClick ? .applicationDefined : .transient
+        if dismissOnOutsideClick { panel.delegate = self }
         panel.contentViewController = controller
         if let size { panel.contentSize = size }
         popover = panel
@@ -215,7 +246,7 @@ final class Tray {
             self?.popover?.performClose(nil)
             self?.openSettings(pane)
         }
-        present(NSHostingController(rootView:controls),above:anchor)
+        present(NSHostingController(rootView:controls),above:anchor,dismissOnOutsideClick:true)
     }
     private func showApplicationGrid(_ entries: [Extra], above anchor: NSButton) {
         if dismissPopover(for:anchor) { return }
