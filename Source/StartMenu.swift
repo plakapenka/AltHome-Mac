@@ -52,12 +52,17 @@ final class StartLibrary: ObservableObject {
 }
 
 enum StartPowerAction {
-    case restart, shutdown
+    case sleep, restart, shutdown
 
-    func requestDialog() throws {
+    func perform() throws {
         NSApp.activate(ignoringOtherApps:true)
-        let eventID = self == .restart ? kAEShowRestartDialog : kAEShowShutdownDialog
-        let event = NSAppleEventDescriptor(eventClass:AEEventClass(kCoreEventClass), eventID:AEEventID(eventID),
+        let eventID: AEEventID
+        switch self {
+        case .sleep: eventID = AEEventID(kAESleep)
+        case .restart: eventID = AEEventID(kAEShowRestartDialog)
+        case .shutdown: eventID = AEEventID(kAEShowShutdownDialog)
+        }
+        let event = NSAppleEventDescriptor(eventClass:AEEventClass(kCoreEventClass), eventID:eventID,
                                            targetDescriptor:NSAppleEventDescriptor(bundleIdentifier:"com.apple.loginwindow"),
                                            returnID:AEReturnID(kAutoGenerateReturnID), transactionID:AETransactionID(kAnyTransactionID))
         _ = try event.sendEvent(options:[.noReply,.canInteract], timeout:5)
@@ -81,6 +86,7 @@ private struct PowerMenuButton: NSViewRepresentable {
             let point = button.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: top)), from: nil)
             menu.popUp(positioning: nil, at: point, in: button)
         }
+        @objc func sleep() { power(.sleep) }
         @objc func restart() { power(.restart) }
         @objc func shutdown() { power(.shutdown) }
     }
@@ -95,6 +101,9 @@ private struct PowerMenuButton: NSViewRepresentable {
         button.toolTip = "Питание"
         button.setAccessibilityLabel("Питание")
         let menu = context.coordinator.menu
+        let sleep = menu.addItem(withTitle: "Режим сна", action: #selector(Coordinator.sleep), keyEquivalent: "")
+        sleep.image = NSImage(systemSymbolName: "moon", accessibilityDescription: nil)
+        sleep.target = context.coordinator
         let restart = menu.addItem(withTitle: "Перезапуск", action: #selector(Coordinator.restart), keyEquivalent: "")
         restart.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         restart.target = context.coordinator
@@ -112,6 +121,7 @@ struct StartMenu: View {
     let size: CGSize
     let launch: (Item) -> Void
     let browse: () -> Void
+    let settings: () -> Void
     let power: (StartPowerAction) -> Void
     let focusSearch = PassthroughSubject<Void,Never>()
     @FocusState private var searchFocused: Bool
@@ -204,6 +214,17 @@ struct StartMenu: View {
             Divider()
             HStack(spacing:14) {
                 Spacer()
+                Button(action: settings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: 30, height: 28)
+                        .background(MenuAppearance.selection(hover == "settings"))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Настройки TaskShelf")
+                .help("Настройки TaskShelf")
+                .onHover { updateHover("settings", $0) }
                 PowerMenuButton(power: power).frame(width: 30, height: 28)
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)

@@ -200,9 +200,12 @@ final class Tray: NSObject {
             self?.owner.launch(item)
         }, browse:{ [weak self] in
             self?.chooseStartPin()
+        }, settings:{ [weak self] in
+            self?.slidingPanel?.dismiss()
+            self?.owner.showSettings()
         }, power:{ [weak self] action in
             self?.slidingPanel?.dismiss()
-            do { try action.requestDialog() } catch { self?.owner.notify(error.localizedDescription) }
+            do { try action.perform() } catch { self?.owner.notify(error.localizedDescription) }
         })
         let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),above:apple,in:shelf,screen:screen) { window in
             menu.focusSearch.send()
