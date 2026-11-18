@@ -24,7 +24,7 @@ struct BatteryStatus {
     }
 
     var trayIcon: NSImage {
-        let image = NSImage(size:NSSize(width:onACPower ? 30 : 21, height:14), flipped:false) { _ in
+        let image = NSImage(size:NSSize(width:21, height:14), flipped:false) { _ in
             let body = NSRect(x:0.75, y:2, width:17.5, height:10)
             let outline = NSBezierPath(roundedRect:body, xRadius:2.4, yRadius:2.4)
             NSColor.black.withAlphaComponent(0.78).setStroke()
@@ -40,11 +40,24 @@ struct BatteryStatus {
             NSGraphicsContext.restoreGraphicsState()
 
             if onACPower {
-                // Two pins, a rounded plug body and a short cord.
-                NSRect(x:23.75, y:8, width:1.5, height:4.5).fill()
-                NSRect(x:27.25, y:8, width:1.5, height:4.5).fill()
-                NSBezierPath(roundedRect:NSRect(x:22.75, y:4.5, width:7, height:4.75), xRadius:1.75, yRadius:1.75).fill()
-                NSRect(x:25.5, y:1.5, width:1.5, height:4).fill()
+                let bolt = NSBezierPath()
+                let center = body.midX
+                bolt.move(to:NSPoint(x:center + 1.8, y:11.7))
+                bolt.line(to:NSPoint(x:center - 3.1, y:6.6))
+                bolt.line(to:NSPoint(x:center - 0.5, y:6.6))
+                bolt.line(to:NSPoint(x:center - 1.8, y:2.3))
+                bolt.line(to:NSPoint(x:center + 3.1, y:7.6))
+                bolt.line(to:NSPoint(x:center + 0.5, y:7.6))
+                bolt.close()
+
+                // Clear a halo in the template so the bolt stays legible over the charge fill.
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.cgContext.setBlendMode(.clear)
+                bolt.lineJoinStyle = .round
+                bolt.lineWidth = 1.6
+                bolt.stroke()
+                NSGraphicsContext.restoreGraphicsState()
+                bolt.fill()
             }
             return true
         }
