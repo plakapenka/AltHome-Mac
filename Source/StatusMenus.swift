@@ -13,7 +13,7 @@ extension Tray {
         AXUIElementSetMessagingTimeout(root,0.25)
         func visibleMenu(_ parent: AXUIElement, depth: Int) -> AXUIElement? {
             if attr(parent,kAXRoleAttribute) as? String == kAXMenuRole {
-                return (owner.windowRect(parent)?.height ?? 0) > 1 ? parent : nil
+                return (windowRect(parent)?.height ?? 0) > 1 ? parent : nil
             }
             guard depth > 0 else { return nil }
             for child in attr(parent,kAXChildrenAttribute) as? [AXUIElement] ?? [] {

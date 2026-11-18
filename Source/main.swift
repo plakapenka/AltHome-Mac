@@ -57,6 +57,13 @@ func observedWindows(previous: [CGWindowID:pid_t]) -> [CGWindowID:pid_t] {
     }
     return result
 }
+func windowRect(_ w: AXUIElement) -> CGRect? {
+    guard let pos = attr(w,kAXPositionAttribute), CFGetTypeID(pos) == AXValueGetTypeID(),
+          let size = attr(w,kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+    var pt = CGPoint.zero, sz = CGSize.zero
+    guard AXValueGetValue(pos as! AXValue,.cgPoint,&pt), AXValueGetValue(size as! AXValue,.cgSize,&sz) else { return nil }
+    return CGRect(origin:pt,size:sz)
+}
 func setMini(_ w: AXUIElement, _ value: Bool) -> Bool {
     AXUIElementSetAttributeValue(w,kAXMinimizedAttribute as CFString,(value ? kCFBooleanTrue : kCFBooleanFalse)) == .success
 }
@@ -235,6 +242,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var bar: Bar!
     let strip = ShelfMenuSurface()
     let scroll = NSScrollView()
+    let desktopButton = DesktopButton(frame:.zero)
+    let desktop = ShowDesktop()
     let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
     let preview = WindowPreview()
@@ -289,6 +298,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
         clockLabel.cell?.usesSingleLineMode = false
         clockLabel.cell?.wraps = true
         glass.addSubview(clockLabel)
+        desktopButton.title = ""
+        desktopButton.isBordered = false
+        desktopButton.target = self
+        desktopButton.action = #selector(toggleDesktop)
+        updateDesktopLabel(false)
+        glass.addSubview(desktopButton)
         tray.install(glass)
         timeFormatter.dateFormat = "HH:mm"
         dateFormatter.dateFormat = "dd.MM.yyyy"
@@ -421,7 +436,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
         if geometry != frame { geometry = frame; bar.setFrame(frame,display:true) }
         let width = frame.width
-        updateClock(at:Date(), rightEdge:width-6)
+        let desktopWidth: CGFloat = 12
+        desktopButton.frame = NSRect(x:width-desktopWidth, y:0, width:desktopWidth, height:frame.height)
+        updateClock(at:Date(), rightEdge:desktopButton.frame.minX-3)
         let trayLeft = tray.layout(width)
         scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
         let apps = liveApps()
@@ -478,7 +495,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
-                if hovering { self.preview.show(for:tile, task:task, frame:self.windowRect) }
+                if hovering { self.preview.show(for:tile, task:task, frame:windowRect) }
                 else if self.preview.anchor === tile { self.preview.hide() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
@@ -489,6 +506,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
             tile.update(image:task.app?.icon ?? ws.icon(forFile:item.path),running:task.app != nil,active:active,pinned:pins.contains(where:{$0.key==item.key}),text:task.caption)
         }
         strip.frame.size = NSSize(width:max(scroll.contentSize.width,x-4),height:44)
+    }
+    private func updateDesktopLabel(_ showingDesktop: Bool) {
+        let label = showingDesktop ? "Восстановить окна" : "Показать рабочий стол"
+        desktopButton.setAccessibilityLabel(label)
+        desktopButton.toolTip = label
+    }
+    @objc private func toggleDesktop() {
+        preview.hide()
+        desktop.toggle(apps:liveApps(), frontmost:ws.frontmostApplication) { [weak self] showingDesktop in
+            self?.updateDesktopLabel(showingDesktop)
+            self?.refresh()
+        }
     }
     func launch(_ item: Item) {
         let url = FileManager.default.fileExists(atPath:item.path) ? item.url : ws.urlForApplication(withBundleIdentifier:item.key)
@@ -519,13 +548,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
         app.activate(options:[])
         _ = AXUIElementPerformAction(window,kAXRaiseAction as CFString)
         remembered.removeValue(forKey: app.processIdentifier)
-    }
-    func windowRect(_ w: AXUIElement) -> CGRect? {
-        guard let pos = attr(w,kAXPositionAttribute), CFGetTypeID(pos) == AXValueGetTypeID(),
-              let size = attr(w,kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
-        var pt = CGPoint.zero, sz = CGSize.zero
-        guard AXValueGetValue(pos as! AXValue,.cgPoint,&pt), AXValueGetValue(size as! AXValue,.cgSize,&sz) else { return nil }
-        return CGRect(origin:pt,size:sz)
     }
     func writeFrame(_ rect: CGRect, to w: AXUIElement) -> Bool {
         var pos = rect.origin, sz = rect.size
