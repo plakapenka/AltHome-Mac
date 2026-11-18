@@ -125,7 +125,7 @@ final class Tile: NSButton {
     var previewHover: ((Bool) -> Void)?
     private let icon = NSImageView()
     private let caption = NSTextField(labelWithString:"")
-    private let activeMark = NSView()
+    private let indicator = NSView()
     private var hover = false
     private var selected = false
     private var area: NSTrackingArea?
@@ -137,15 +137,12 @@ final class Tile: NSButton {
         title = ""
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        icon.frame = NSRect(x:9,y:9,width:30,height:30)
         icon.imageScaling = .scaleProportionallyUpOrDown
         addSubview(icon)
-        activeMark.frame = NSRect(x:icon.frame.midX - 8, y:isFlipped ? bounds.height - 5 : 2, width:16, height:3)
-        activeMark.wantsLayer = true
-        activeMark.layer?.cornerRadius = 1.5
-        activeMark.layer?.backgroundColor = NSColor(srgbRed:0.38,green:0.83,blue:1,alpha:1).cgColor
-        activeMark.isHidden = true
-        addSubview(activeMark)
+        indicator.wantsLayer = true
+        indicator.layer?.cornerRadius = 1.5
+        indicator.isHidden = true
+        addSubview(indicator)
         caption.font = Self.captionFont
         caption.textColor = .labelColor
         caption.lineBreakMode = .byTruncatingTail
@@ -177,7 +174,6 @@ final class Tile: NSButton {
     override func mouseEntered(with e: NSEvent) { hover = true; tint(); previewHover?(true) }
     override func mouseExited(with e: NSEvent) { hover = false; tint(); previewHover?(false) }
     func tint() {
-        activeMark.isHidden = !selected
         let outlined = selected || hover
         layer?.cornerRadius = outlined ? 6 : 0
         layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.2 : 0.12).cgColor
@@ -188,7 +184,24 @@ final class Tile: NSButton {
         icon.image = image
         caption.stringValue = text ?? ""
         caption.isHidden = text == nil
-        caption.frame = NSRect(x:Self.captionX, y:14, width:max(1,bounds.width-Self.captionX-Self.trailingInset), height:17)
+        let iconSize: CGFloat = 30
+        let markHeight: CGFloat = 3
+        let gap: CGFloat = 3
+        let stackHeight = iconSize + (running ? gap + markHeight : 0)
+        let stackMinY = bounds.midY - stackHeight / 2
+        let iconY = isFlipped ? stackMinY : stackMinY + stackHeight - iconSize
+        let iconCenterX = text == nil ? bounds.midX : 24
+        icon.frame = NSRect(x:iconCenterX-iconSize/2, y:iconY, width:iconSize, height:iconSize)
+        indicator.isHidden = !running
+        if running {
+            let markWidth: CGFloat = active ? 16 : 8
+            let markY = isFlipped ? icon.frame.maxY + gap : stackMinY
+            indicator.frame = NSRect(x:iconCenterX-markWidth/2, y:markY, width:markWidth, height:markHeight)
+            indicator.layer?.backgroundColor = (active ? NSColor(srgbRed:0.38,green:0.83,blue:1,alpha:1) : NSColor.white).cgColor
+        }
+        let labelHeight = ceil(caption.intrinsicContentSize.height)
+        caption.frame = NSRect(x:Self.captionX, y:bounds.midY-labelHeight/2,
+                               width:max(1,bounds.width-Self.captionX-Self.trailingInset), height:labelHeight)
         selected = active; tint()
         let label = (text != nil && text != item.name) ? "\(item.name) — \(text!)" : item.name
         setAccessibilityLabel(label)
