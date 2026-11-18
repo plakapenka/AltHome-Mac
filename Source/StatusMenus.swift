@@ -80,23 +80,6 @@ extension Tray {
         return (match ?? (items.count == 1 ? items.first : nil)).flatMap { submenu(of:$0) }
     }
 
-    func showApplicationList(_ entries: [Extra], above button: NSButton) {
-        let list = NSMenu()
-        for entry in entries.sorted(by:{ $0.label.localizedStandardCompare($1.label) == .orderedAscending }) {
-            let name = entry.app.localizedName ?? entry.label
-            owner.add(list,name) { self.press(entry) }
-            guard let item = list.items.last else { continue }
-            item.toolTip = entry.label
-            item.image = entry.app.icon?.copy() as? NSImage
-            item.image?.size = NSSize(width:18,height:18)
-            if let source = storedMenu(entry) {
-                let commands = copyItems(source,entry:entry,path:[])
-                if !commands.items.isEmpty { item.submenu = commands }
-            }
-        }
-        popUp(list,above:button)
-    }
-
     func showExtra(_ entry: Extra, above button: NSButton) {
         if let source = storedMenu(entry) {
             let menu = copyItems(source,entry:entry,path:[])

@@ -196,11 +196,12 @@ final class Tray {
         popover?.performClose(nil)
         return wasOpen
     }
-    private func present(_ controller:NSViewController, above anchor:NSButton) {
+    private func present(_ controller:NSViewController, above anchor:NSButton, size:NSSize? = nil) {
         let panel = NSPopover()
         panel.animates = false
         panel.behavior = .transient
         panel.contentViewController = controller
+        if let size { panel.contentSize = size }
         popover = panel
         popoverAnchor = anchor
         panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
@@ -212,6 +213,16 @@ final class Tray {
             self?.openSettings(pane)
         }
         present(NSHostingController(rootView:controls),above:anchor)
+    }
+    private func showApplicationGrid(_ entries: [Extra], above anchor: NSButton) {
+        if dismissPopover(for:anchor) { return }
+        let sorted = entries.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+        let grid = StatusIconGrid(entries:sorted) { [weak self, weak anchor] entry in
+            guard let self, let anchor else { return }
+            self.popover?.performClose(nil)
+            if !entry.app.isTerminated { self.showExtra(entry,above:anchor) }
+        }
+        present(NSHostingController(rootView:grid),above:anchor,size:grid.size)
     }
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []
@@ -243,8 +254,7 @@ final class Tray {
         let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
         if !applications.isEmpty {
             controls.insert(("Значки приложений","chevron.up",nil,nil,{ button in
-                self.popover?.performClose(nil)
-                self.showApplicationList(applications,above:button)
+                self.showApplicationGrid(applications,above:button)
             }),at:0)
         }
         for extra in extraItems where extra.app.bundleIdentifier?.hasPrefix("com.apple.") == true {
