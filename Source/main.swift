@@ -366,7 +366,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       screen.frame.contains(self.bar.frame),
                       self.bar.frame.minY == screen.frame.minY,
                       let menu = tile.context?() else { exit(2) }
-                guard self.tray.apple.image != nil || self.tray.apple.title == "",
+                guard self.tray.apple.glyph.image != nil,
                       self.tray.apple.frame.maxX <= self.scroll.frame.minX,
                       let firstControl = self.tray.buttons.first,
                       self.scroll.frame.maxX <= firstControl.frame.minX,

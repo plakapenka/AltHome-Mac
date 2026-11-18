@@ -45,7 +45,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
 final class Tray: NSObject, NSPopoverDelegate {
     unowned let owner: Delegate
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
-    let apple = ShelfButton(frame:.zero)
+    let apple = StartButton(frame:.zero)
     var buttons: [ShelfButton] = []
     var extras: [Extra] = []
     var scanTime = Date.distantPast
@@ -58,19 +58,7 @@ final class Tray: NSObject, NSPopoverDelegate {
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
-        let font = NSFont.systemFont(ofSize:26, weight:.medium)
-        if let symbol = NSImage(systemSymbolName:"apple.logo", accessibilityDescription:"Пуск") {
-            apple.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize, weight:.medium)) ?? symbol
-            apple.imagePosition = .imageOnly
-            apple.imageScaling = .scaleNone
-        } else {
-            apple.attributedTitle = NSAttributedString(string:"", attributes:[.font:font,.foregroundColor:NSColor.white])
-        }
-        apple.contentTintColor = .white
-        apple.setAccessibilityLabel("Пуск")
-        apple.isBordered = false
         apple.target = self; apple.action = #selector(showApple)
-        apple.toolTip = "Пуск"
         view.addSubview(apple)
     }
     func openSettings(_ pane:String) {
