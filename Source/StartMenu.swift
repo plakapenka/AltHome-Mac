@@ -74,7 +74,6 @@ struct StartMenu: View {
     @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var hover: String?
-    @State private var showPower = false
 
     private func icon(_ item: Item, _ side: CGFloat) -> some View {
         Image(nsImage:NSWorkspace.shared.icon(forFile:item.path)).renderingMode(.original)
@@ -162,14 +161,15 @@ struct StartMenu: View {
             Divider()
             HStack(spacing:14) {
                 Spacer()
-                if showPower {
-                    Button { power(.restart) } label: { Label("Перезагрузить…", systemImage:"arrow.clockwise") }
-                    Button { power(.shutdown) } label: { Label("Выключить…", systemImage:"power") }
-                }
-                Button { showPower.toggle() } label: {
+                Menu {
+                    Button { power(.restart) } label: { Label("Перезапуск…", systemImage:"arrow.clockwise") }
+                    Button { power(.shutdown) } label: { Label("Выключение…", systemImage:"power") }
+                } label: {
                     Image(systemName:"power").font(.system(size:16,weight:.medium))
                         .frame(width:30,height:28).contentShape(Rectangle())
-                }.buttonStyle(.plain).help("Питание").accessibilityLabel("Питание")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Питание").accessibilityLabel("Питание")
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
          .background(Color(nsColor:.windowBackgroundColor))
