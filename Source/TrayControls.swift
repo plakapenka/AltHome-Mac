@@ -50,7 +50,9 @@ private struct WiFiControls: View {
     @State private var connected: String?
     @State private var associated = false
     @State private var networks: [NetworkChoice] = []
-    @State private var busy = false
+    @State private var scanID: UUID?
+    @State private var connecting = false
+    private var busy: Bool { scanID != nil || connecting }
     @State private var message = ""
     @State private var selected: NetworkChoice?
     @State private var password = ""
@@ -64,13 +66,16 @@ private struct WiFiControls: View {
     }
     private func scan() {
         guard let device = interface, power, !busy else { return }
-        busy = true
+        let id = UUID()
+        scanID = id
         message = ""
         DispatchQueue.global(qos:.utility).async {
             let discovered = Result { try device.scanForNetworks(withSSID:nil) }
             DispatchQueue.main.async {
-                busy = false
+                guard scanID == id else { return }
+                scanID = nil
                 load()
+                guard power else { return }
                 switch discovered {
                 case .success(let list): networks = networkChoices(list)
                 case .failure: message = "Не удалось обновить список сетей."
@@ -81,13 +86,13 @@ private struct WiFiControls: View {
     private func connect(_ choice: NetworkChoice) {
         guard !busy, let device = interface else { return }
         let secret = password.isEmpty ? nil : password
-        busy = true
+        connecting = true
         message = ""
         password = ""
         DispatchQueue.global(qos:.userInitiated).async {
             let result = Result { try device.associate(to:choice.network,password:secret) }
             DispatchQueue.main.async {
-                busy = false
+                connecting = false
                 switch result {
                 case .success: selected = nil; message = "Подключено к «" + choice.id + "»."
                 case .failure: message = "Не удалось подключиться. Проверьте пароль или откройте настройки Wi-Fi."
@@ -96,16 +101,34 @@ private struct WiFiControls: View {
             }
         }
     }
+    private func setPower(_ enabled: Bool) {
+        guard let device = interface else { return }
+        do {
+            try device.setPower(enabled)
+            scanID = nil
+            selected = nil
+            password = ""
+            message = ""
+            load()
+            if power { scan() }
+        } catch {
+            message = "Не удалось переключить Wi-Fi."
+            load()
+        }
+    }
+
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
             HStack {
                 Text(associated ? (connected ?? "Подключено") : (power ? "Нет подключения" : "Выключено"))
                     .foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Toggle("Wi-Fi",isOn:Binding(get:{power},set:{ value in
-                    do { try interface?.setPower(value); selected = nil; password = ""; message = ""; load(); if power { scan() } }
-                    catch { message = "Не удалось переключить Wi-Fi."; load() }
-                })).labelsHidden().toggleStyle(.switch).disabled(busy || interface == nil)
+                Toggle("Wi-Fi", isOn: Binding(get: { power }, set: setPower))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(.blue)
+                    .environment(\.controlActiveState, .active)
+                    .disabled(connecting || interface == nil)
             }
             if power {
                 Divider()
