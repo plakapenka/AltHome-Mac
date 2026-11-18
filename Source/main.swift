@@ -282,6 +282,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let ws = NSWorkspace.shared
     let defaults = CommandLine.arguments.contains("--ui-check") ? UserDefaults(suiteName:"local.taskshelf.layoutcheck")! : UserDefaults.standard
     var bar: Bar!
+    var settingsWindow: NSWindow?
     let strip = ShelfMenuSurface()
     let scroll = NSScrollView()
     let desktopButton = DesktopButton(frame:.zero)
@@ -706,6 +707,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     func panelMenu() -> NSMenu {
         let m = NSMenu()
+        add(m,"Настройки TaskShelf…", symbol: "gearshape") { self.showSettings() }
+        m.addItem(.separator())
         add(m,"Закрепить приложение…", symbol: "pin") {
             let p = NSOpenPanel()
             p.directoryURL = URL(fileURLWithPath:"/Applications"); p.allowedContentTypes = [.applicationBundle]
@@ -714,37 +717,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 let item = Item(u)
                 if !self.pins.contains(where:{$0.key == item.key}) { self.pins.append(item); self.save() }
             }
-        }
-        add(m,"Показывать дату", symbol: "calendar") {
-            self.defaults.set(!self.showsDate, forKey:"showDate")
-            self.render()
-        }
-        m.items.last?.state = showsDate ? .on : .off
-        add(m,"Dock над панелью", symbol: "dock.rectangle") {
-            self.tray.configureDock(enabled: !self.tray.dockEnabled)
-            self.render()
-        }
-        m.items.last?.state = tray.dockEnabled ? .on : .off
-        if !AXIsProcessTrusted() {
-            add(m,"Разрешить доступ к окнам…", symbol: "accessibility") {
-                self.requestWindowAccess()
-            }
-        }
-        if !CGPreflightScreenCaptureAccess() {
-            add(m,"Разрешить превью окон…", symbol: "macwindow") {
-                _ = CGRequestScreenCaptureAccess()
-                if !CGPreflightScreenCaptureAccess(), let url = URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                    self.ws.open(url)
-                }
-            }
-        }
-        let service = SMAppService.mainApp
-        add(m,service.status == .enabled ? "Отключить запуск при входе" : "Запускать при входе", symbol: "person.crop.circle") {
-            do {
-                if service.status == .enabled { try service.unregister() }
-                else if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-                else { try service.register(); if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() } }
-            } catch { self.notify(error.localizedDescription) }
         }
         m.addItem(.separator()); add(m,"Завершить панель", symbol: "power") { NSApp.terminate(nil) }
         return m
