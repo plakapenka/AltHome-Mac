@@ -230,7 +230,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var bar: Bar!
     let strip = NSView()
     let scroll = NSScrollView()
-    let clockLabel = NSTextField(labelWithString:"")
+    let clockLabel = NSButton()
     let options = NSButton()
     lazy var tray = Tray(self)
     let preview = WindowPreview()
@@ -270,6 +270,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         scroll.hasVerticalScroller = false
         scroll.documentView = strip
         glass.addSubview(scroll)
+        clockLabel.isBordered = false
+        clockLabel.target = tray
+        clockLabel.action = #selector(Tray.showClock)
+        clockLabel.setAccessibilityLabel("Часы")
         clockLabel.font = .monospacedDigitSystemFont(ofSize:13,weight:.medium)
         clockLabel.alignment = .center
         glass.addSubview(clockLabel)
@@ -396,7 +400,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
         clockLabel.frame = NSRect(x:width-99,y:15,width:54,height:20)
         options.frame = NSRect(x:width-44,y:7,width:36,height:36)
-        clockLabel.stringValue = fmt.string(from:Date())
+        clockLabel.title = fmt.string(from:Date())
         let apps = liveApps()
         let pids = Set(apps.map { $0.processIdentifier })
         remembered = remembered.filter { pids.contains($0.key) }

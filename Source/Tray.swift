@@ -32,6 +32,28 @@ struct Extra {
     let app: NSRunningApplication
     let target: AXUIElement
 }
+// The current menu bar hosts both system extras and remote buttons owned by other apps.
+private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Extra] {
+    var result: [Extra] = []
+    func collect(_ item: AXUIElement, depth: Int) {
+        guard depth <= 4, let role = attr(item,kAXRoleAttribute) as? String else { return }
+        if role == kAXMenuBarItemRole || role == kAXButtonRole {
+            var pid: pid_t = 0
+            _ = AXUIElementGetPid(item,&pid)
+            let app = NSRunningApplication(processIdentifier:pid) ?? host
+            let id = attr(item,kAXIdentifierAttribute) as? String ?? ""
+            let label = [kAXDescriptionAttribute,kAXTitleAttribute,kAXHelpAttribute].compactMap { attr(item,$0) as? String }.first { !$0.isEmpty }
+            result.append(Extra(label:label ?? app.localizedName ?? "Меню",identifier:id,app:app,target:item))
+            return
+        }
+        for child in attr(item,kAXChildrenAttribute) as? [AXUIElement] ?? [] {
+            collect(child,depth:depth+1)
+        }
+    }
+    collect(root,depth:0)
+    return result
+}
+
 final class Tray {
     unowned let owner: Delegate
     let apple = ShelfButton(frame:.zero)
@@ -106,27 +128,86 @@ final class Tray {
             for app in apps {
                 let root = AXUIElementCreateApplication(app.processIdentifier)
                 AXUIElementSetMessagingTimeout(root,0.2)
-                guard let menu = element(root,kAXExtrasMenuBarAttribute),
-                      let children = attr(menu,kAXChildrenAttribute) as? [AXUIElement] else { continue }
-                for child in children {
-                    let id = attr(child,kAXIdentifierAttribute) as? String ?? ""
-                    let name = [kAXDescriptionAttribute,kAXTitleAttribute,kAXHelpAttribute].compactMap { attr(child,$0) as? String }.first(where:{!$0.isEmpty}) ?? app.localizedName ?? "Меню"
-                    items.append(Extra(label:name,identifier:id,app:app,target:child))
+                if let menu = element(root,kAXExtrasMenuBarAttribute) {
+                    items += menuEntries(menu,host:app)
+                }
+                if app.bundleIdentifier == "com.apple.MenuBarAgent" {
+                    let windows = attr(root,kAXWindowsAttribute) as? [AXUIElement] ?? []
+                    for w in windows {
+                        guard let size = attr(w,kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { continue }
+                        var frameSize = CGSize.zero
+                        guard AXValueGetValue(size as! AXValue,.cgSize,&frameSize), frameSize.height <= 64 else { continue }
+                        items += menuEntries(w,host:app)
+                    }
                 }
             }
-            let result = items
+            var seen = Set<String>()
+            let result = items.filter { seen.insert("\($0.app.processIdentifier):" + ($0.identifier.isEmpty ? $0.label : $0.identifier)).inserted }
             DispatchQueue.main.async {
                 self.extras = AXIsProcessTrusted() ? result : []; self.scanning = false; self.owner.render()
             }
         }
     }
     private func family(_ e:Extra) -> String {
+        if e.app.bundleIdentifier?.lowercased() == "com.apple.textinputmenuagent" { return "keyboard" }
+        if e.identifier == "com.apple.menuextra.clock" { return "clock" }
         let s = (e.identifier+" "+e.label).lowercased().replacingOccurrences(of:"‑",with:"-")
         for (key,terms) in [("wifi",["wi-fi","wifi"]),("battery",["battery","аккумулятор","батаре"]),("keyboard",["inputmenu","textinput","источник ввода","меню ввода"]),("sound",["volume","sound","громкость","звук"]),("bluetooth",["bluetooth"]),("control",["control center","пункт управления","controlcenter.controlcenter"])] where terms.contains(where:{s.contains($0)}) { return key }
         return ""
     }
-    private func press(_ e:Extra) {
-        if AXUIElementPerformAction(e.target,kAXPressAction as CFString) != .success { NSSound.beep() }
+    @discardableResult
+    private func press(_ e:Extra) -> Bool {
+        AXUIElementSetMessagingTimeout(e.target,0.4)
+        let result = AXUIElementPerformAction(e.target,kAXPressAction as CFString)
+        // A menu can keep AXPress pending until the user makes a selection.
+        return result == .success || result == .cannotComplete
+    }
+    private var navigation: Task<Void,Never>?
+    @objc func showClock() {
+        navigation?.cancel()
+        if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
+    }
+
+    private func openSystemMenu(_ key:String, pane:String) {
+        navigation?.cancel()
+        if let entry = extras.first(where:{ family($0) == key }),
+           press(entry) { return }
+        guard let module = ["sound":"Sound","wifi":"WiFi","bluetooth":"Bluetooth","battery":"Battery"][key],
+              let center = extras.first(where:{ family($0) == "control" }),
+              let app = NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.controlcenter").first else {
+            openSettings(pane)
+            return
+        }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root,0.3)
+        func moduleGroup() -> AXUIElement? {
+            for w in attr(root,kAXWindowsAttribute) as? [AXUIElement] ?? [] {
+                let groups = attr(w,kAXChildrenAttribute) as? [AXUIElement] ?? []
+                for group in groups {
+                    let children = attr(group,kAXChildrenAttribute) as? [AXUIElement] ?? []
+                    if let target = children.first(where:{ attr($0,kAXIdentifierAttribute) as? String == "module-" + module }) { return target }
+                }
+            }
+            return nil
+        }
+        if moduleGroup() == nil && !press(center) { openSettings(pane); return }
+        navigation = Task { @MainActor in
+            for _ in 0..<12 {
+                guard !Task.isCancelled else { return }
+                if let group = moduleGroup() {
+                    for child in [group] + (attr(group,kAXChildrenAttribute) as? [AXUIElement] ?? []) {
+                        var names: CFArray?
+                        AXUIElementCopyActionNames(child,&names)
+                        if let action = (names as? [String])?.first(where:{
+                            let name = $0.components(separatedBy:"\n").first?.lowercased() ?? ""
+                            return name.contains("подробнее") || name.contains("details")
+                        }), AXUIElementPerformAction(child,action as CFString) == .success { return }
+                    }
+                    return // Keep the live controls available when the OS has no detail action.
+                }
+                try? await Task.sleep(nanoseconds:75_000_000)
+            }
+        }
     }
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []
@@ -134,15 +215,18 @@ final class Tray {
     func layout(_ width:CGFloat) -> CGFloat {
         apple.frame = NSRect(x:1,y:3,width:44,height:44)
         scan()
+        owner.clockLabel.isEnabled = extras.contains(where:{ family($0) == "clock" })
         var controls: [Control] = []
         let wifi = CWWiFiClient.shared().interface()
         func system(_ key:String,_ label:String,_ symbol:String,_ pane:String) {
-            let match = extras.first { family($0)==key }
-            controls.append((label,symbol,nil,nil,{ _ in
-                if let match { self.press(match) } else { self.openSettings(pane) }
-            }))
+            controls.append((label,symbol,nil,nil,{ _ in self.openSystemMenu(key,pane:pane) }))
         }
-        controls.append(("Источник ввода",nil,inputCode(),nil,{ self.inputs($0) }))
+        controls.append(("Источник ввода",nil,inputCode(),nil,{ button in
+            self.navigation?.cancel()
+            if let entry = self.extras.first(where:{ self.family($0) == "keyboard" }),
+               self.press(entry) { return }
+            self.inputs(button)
+        }))
         system("wifi","Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi","com.apple.wifi-settings-extension")
         system("sound","Звук","speaker.wave.2","com.apple.Sound-Settings.extension")
         system("bluetooth","Bluetooth","antenna.radiowaves.left.and.right","com.apple.BluetoothSettings")
@@ -151,11 +235,8 @@ final class Tray {
             system("battery","Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent","com.apple.Battery-Settings.extension")
         }
         system("control","Пункт управления","switch.2","com.apple.ControlCenter-Settings.extension")
-        var consumed = Set<AXUIElement>()
-        for key in ["keyboard","wifi","sound","battery","bluetooth","control"] {
-            if let first = extras.first(where:{ family($0) == key }) { consumed.insert(first.target) }
-        }
-        for extra in extras where !consumed.contains(extra.target) {
+        let represented: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
+        for extra in extras where !represented.contains(family(extra)) {
             controls.append((extra.label,nil,nil,extra.app.icon,{ _ in self.press(extra) }))
         }
         let slots = max(2,Int(width*0.32/32))
