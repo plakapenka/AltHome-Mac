@@ -71,7 +71,6 @@ struct ShelfCalendar: View {
     }
 
     private static let highlight = Color(red:0.48,green:0.84,blue:1)
-    private let columns = Array(repeating:GridItem(.flexible(),spacing:0),count:7)
 
     var body: some View {
         VStack(spacing:0) {
@@ -90,7 +89,7 @@ struct ShelfCalendar: View {
                         .contentShape(Capsule())
                 }.buttonStyle(.plain)
             }
-            .padding(.horizontal,18).padding(.vertical,14)
+            .padding(.horizontal,18).padding(.top,18).padding(.bottom,14)
             .background(LinearGradient(colors:[Self.highlight.opacity(0.14),Self.highlight.opacity(0.02)],
                                        startPoint:.topLeading,endPoint:.bottomTrailing))
             Divider()
@@ -102,14 +101,21 @@ struct ShelfCalendar: View {
                     monthButton(-1)
                     monthButton(1)
                 }.padding(.horizontal,5)
-                LazyVGrid(columns:columns,spacing:2) {
-                    ForEach(0..<7) { index in
-                        let symbol = calendar.shortStandaloneWeekdaySymbols[(calendar.firstWeekday-1+index)%7]
-                        Text(symbol.uppercased(with:Self.locale))
-                            .font(.system(size:10,weight:.semibold))
-                            .foregroundStyle(.secondary).frame(height:20)
+                let dates = days
+                Grid(horizontalSpacing:0,verticalSpacing:2) {
+                    GridRow {
+                        ForEach(0..<7) { index in
+                            let symbol = calendar.shortStandaloneWeekdaySymbols[(calendar.firstWeekday-1+index)%7]
+                            Text(symbol.uppercased(with:Self.locale))
+                                .font(.system(size:10,weight:.semibold))
+                                .foregroundStyle(.secondary).frame(maxWidth:.infinity).frame(height:20)
+                        }
                     }
-                    ForEach(days,id:\.self) { dayButton($0) }
+                    ForEach(0..<(dates.count / 7),id:\.self) { week in
+                        GridRow {
+                            ForEach(0..<7) { column in dayButton(dates[week*7+column]) }
+                        }
+                    }
                 }
             }.padding(.horizontal,13).padding(.vertical,10)
         }
