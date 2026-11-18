@@ -340,13 +340,7 @@ struct TrayControls: View {
                 case .wifi: WiFiControls()
                 case .sound: SoundControls()
                 case .bluetooth: BluetoothControls()
-                case .battery:
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let battery = BatteryStatus.current() {
-                            Text(battery.description)
-                            ProgressView(value: battery.fraction).tint(.green)
-                        }
-                    }
+                case .battery: BatteryControls()
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
