@@ -33,7 +33,6 @@ private final class DockIconButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
     func update(_ value: DockEntry) {
         entry = value
-        toolTip = value.title
         setAccessibilityLabel(value.title)
         dot.isHidden = !value.running
     }
@@ -102,6 +101,7 @@ final class DockStrip: NSView {
     private let plate: NSView
     private let scroll = NSScrollView()
     private let document = NSView()
+    private var nameTag: DockNameTag?
     private var entries: [DockEntry] = []
     private var views: [String: NSView] = [:]
     private var subscriptions = Set<AnyCancellable>()
@@ -217,6 +217,7 @@ final class DockStrip: NSView {
         lastTick = CACurrentMediaTime()
     }
     func stop() {
+        nameTag?.hide()
         stopClock?()
         stopClock = nil
         if let dragKey {
@@ -232,8 +233,13 @@ final class DockStrip: NSView {
         guard let window, window.isVisible else { stop(); return }
         let now = CACurrentMediaTime(), dt = min(0.08, now - lastTick)
         lastTick = now
-        guard pressedKey == nil, !mirror.dragging, zoom > 1 else { return }
+        guard pressedKey == nil, !mirror.dragging, (window as? SlidingShelfPanel)?.isClosing != true else {
+            nameTag?.hide()
+            return
+        }
         let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        defer { updateName(at: point, in: window) }
+        guard zoom > 1 else { return }
         let inside = hoverRegion.contains(point)
         let target: CGFloat = inside ? 1 : 0
         if !inside && strength == 0 { return }
@@ -248,6 +254,19 @@ final class DockStrip: NSView {
         strength += (target - strength) * (reduce ? 1 : 1 - exp(-dt / 0.055))
         if abs(target - strength) < 0.002 { strength = target }
         if oldStrength != strength || oldFocus != focus { place(animateNeighbors: false) }
+    }
+
+    private func updateName(at point: NSPoint, in dock: NSWindow) {
+        let local = document.convert(point, from: self)
+        guard hoverRegion.contains(point),
+              let button = entries.lazy.compactMap({ self.views[$0.key] as? DockIconButton })
+                .first(where: { $0.frame.contains(local) }) else {
+            nameTag?.hide()
+            return
+        }
+        if nameTag == nil { nameTag = DockNameTag() }
+        let anchor = dock.convertToScreen(button.convert(button.bounds, to: nil))
+        nameTag?.show(button.entry.title, above: anchor, in: dock)
     }
 
     private func place(animateNeighbors: Bool) {
