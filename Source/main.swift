@@ -250,10 +250,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var titleBarClick: TitleBarClick?
     var chatTitleDrag: ChatTitleDrag?
     var timer: Timer?
-    let fmt = DateFormatter()
+    let timeFormatter = DateFormatter()
+    let dateFormatter = DateFormatter()
+    var showsDate: Bool { defaults.bool(forKey:"showDate") }
     var geometry: NSRect = .zero
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        defaults.register(defaults:["showDate":true])
         if let data = defaults.data(forKey:"pins"), let saved = try? JSONDecoder().decode([Item].self,from:data) { pins = saved }
         bar = Bar(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         bar.isReleasedWhenClosed = false
@@ -283,9 +286,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
         clockLabel.setAccessibilityLabel("Часы")
         clockLabel.font = .monospacedDigitSystemFont(ofSize:13,weight:.medium)
         clockLabel.alignment = .center
+        clockLabel.cell?.usesSingleLineMode = false
+        clockLabel.cell?.wraps = true
         glass.addSubview(clockLabel)
         tray.install(glass)
-        fmt.dateFormat = "HH:mm"
+        timeFormatter.dateFormat = "HH:mm"
+        dateFormatter.dateFormat = "dd.MM.yyyy"
         let nc = ws.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             nc.addObserver(self,selector:#selector(refresh),name:name,object:nil)
@@ -391,16 +397,33 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+    private func updateClock(at date: Date, rightEdge: CGFloat) {
+        let alignment = NSMutableParagraphStyle()
+        alignment.alignment = .center
+        let title = NSMutableAttributedString(string:timeFormatter.string(from:date), attributes:[
+            .font: NSFont.monospacedDigitSystemFont(ofSize:13, weight:.medium),
+            .foregroundColor: NSColor.white, .paragraphStyle: alignment
+        ])
+        if showsDate {
+            title.append(NSAttributedString(string:"\n" + dateFormatter.string(from:date), attributes:[
+                .font: NSFont.monospacedDigitSystemFont(ofSize:11, weight:.regular),
+                .foregroundColor: NSColor(white:0.86, alpha:1), .paragraphStyle: alignment
+            ]))
+        }
+        clockLabel.attributedTitle = title
+        clockLabel.setAccessibilityValue(title.string.replacingOccurrences(of:"\n", with:", "))
+        let width = max(54, ceil(title.size().width) + 12)
+        clockLabel.frame = NSRect(x:rightEdge-width, y:7, width:width, height:36)
+    }
     func render() {
         guard let screen = NSScreen.screens.first, bar != nil else { return }
         let bounds = screen.visibleFrame
         let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
         if geometry != frame { geometry = frame; bar.setFrame(frame,display:true) }
         let width = frame.width
-        clockLabel.frame = NSRect(x:width-60,y:7,width:54,height:36)
+        updateClock(at:Date(), rightEdge:width-6)
         let trayLeft = tray.layout(width)
         scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
-        clockLabel.title = fmt.string(from:Date())
         let apps = liveApps()
         let pids = Set(apps.map { $0.processIdentifier })
         remembered = remembered.filter { pids.contains($0.key) }
@@ -595,6 +618,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 if !self.pins.contains(where:{$0.key == item.key}) { self.pins.append(item); self.save() }
             }
         }
+        add(m,"Показывать дату") {
+            self.defaults.set(!self.showsDate, forKey:"showDate")
+            self.render()
+        }
+        m.items.last?.state = showsDate ? .on : .off
         if !AXIsProcessTrusted() {
             add(m,"Разрешить доступ к окнам…") {
                 self.requestWindowAccess()
