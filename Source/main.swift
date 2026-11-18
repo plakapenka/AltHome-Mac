@@ -242,6 +242,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var querying = false
     var remembered: [pid_t:AXUIElement] = [:]
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
+    var zoomMonitor: CFMachPort?
+    var titleBarClick: TitleBarClick?
     var timer: Timer?
     let fmt = DateFormatter()
     var geometry: NSRect = .zero
@@ -362,6 +364,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         if !AXIsProcessTrusted() { snapshots.removeAll() }
         render()
         guard AXIsProcessTrusted(), !querying else { return }
+        if zoomMonitor == nil && !CommandLine.arguments.contains("--ui-check") { monitorTitleBarZoom() }
         querying = true
         let apps = liveApps()
         DispatchQueue.global(qos:.userInitiated).async {
@@ -496,32 +499,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
         guard AXValueGetValue(pos as! AXValue,.cgPoint,&pt), AXValueGetValue(size as! AXValue,.cgSize,&sz) else { return nil }
         return CGRect(origin:pt,size:sz)
     }
+    func writeFrame(_ rect: CGRect, to w: AXUIElement) -> Bool {
+        var pos = rect.origin, sz = rect.size
+        guard let p = AXValueCreate(.cgPoint,&pos), let s = AXValueCreate(.cgSize,&sz) else { return false }
+        guard AXUIElementSetAttributeValue(w,kAXPositionAttribute as CFString,p) == .success else { return false }
+        return AXUIElementSetAttributeValue(w,kAXSizeAttribute as CFString,s) == .success
+    }
     func fit(_ w: AXUIElement,_ app: NSRunningApplication) {
         bring(w,app)
         guard let current = windowRect(w), let primary = NSScreen.screens.first else { return }
-        func flip(_ r: CGRect) -> CGRect {
-            CGRect(x:r.minX,y:primary.frame.maxY-r.maxY,width:r.width,height:r.height)
-        }
         func overlap(_ screen: NSScreen) -> CGFloat {
-            let r = flip(screen.frame).intersection(current)
+            let r = accessibilityFrame(screen.frame,primary:primary).intersection(current)
             return r.isNull ? 0 : r.width*r.height
         }
         guard let screen = NSScreen.screens.max(by:{overlap($0)<overlap($1)}) else { return }
-        var usable = screen.visibleFrame
-        if usable.intersects(bar.frame) {
-            let inset = max(0,bar.frame.maxY+2-usable.minY)
-            usable.origin.y += inset; usable.size.height -= inset
-        }
         let saved = expanded.first { CFEqual(w,$0.1) }
-        let restoring = saved.map { abs($0.3.minX-current.minX)<2 && abs($0.3.minY-current.minY)<2 && abs($0.3.width-current.width)<2 && abs($0.3.height-current.height)<2 } ?? false
-        let goal = restoring ? saved!.2 : flip(usable)
-        func write(_ rect: CGRect) -> Bool {
-            var pos = rect.origin, sz = rect.size
-            guard let p = AXValueCreate(.cgPoint,&pos), let s = AXValueCreate(.cgSize,&sz) else { return false }
-            guard AXUIElementSetAttributeValue(w,kAXPositionAttribute as CFString,p) == .success else { return false }
-            return AXUIElementSetAttributeValue(w,kAXSizeAttribute as CFString,s) == .success
-        }
-        guard write(goal) else { _ = write(current); notify("Приложение ограничивает изменение размера этого окна."); return }
+        let restoring = saved.map { nearlyEqual($0.3,current) } ?? false
+        let goal = restoring ? saved!.2 : accessibilityFrame(usableFrame(on:screen),primary:primary)
+        guard writeFrame(goal, to:w) else { _ = writeFrame(current, to:w); notify("Приложение ограничивает изменение размера этого окна."); return }
         expanded.removeAll { CFEqual(w,$0.1) }
         if !restoring, let actual = windowRect(w) { expanded.append((app.processIdentifier,w,current,actual)) }
     }
