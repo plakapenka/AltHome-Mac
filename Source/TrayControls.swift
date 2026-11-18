@@ -2,7 +2,6 @@ import SwiftUI
 import CoreWLAN
 import CoreBluetooth
 import IOBluetooth
-import IOKit.ps
 
 enum TrayPage: String {
     case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", battery = "Аккумулятор"
@@ -328,12 +327,9 @@ struct TrayControls: View {
             case .sound: SoundControls()
             case .bluetooth: BluetoothControls()
             case .battery:
-                if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-                   let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
-                   let battery = sources.compactMap({ IOPSGetPowerSourceDescription(info,$0)?.takeUnretainedValue() as? [String:Any] }).first(where:{ $0[kIOPSTypeKey] as? String == kIOPSInternalBatteryType }),
-                   let charge = battery[kIOPSCurrentCapacityKey] as? Int, let max = battery[kIOPSMaxCapacityKey] as? Int, max > 0 {
-                    ProgressView(value:Double(charge),total:Double(max))
-                    Text("\(charge*100/max)% · " + (battery[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue ? "Питание от сети" : "Питание от аккумулятора"))
+                if let battery = BatteryStatus.current() {
+                    ProgressView(value:battery.fraction)
+                    Text(battery.description)
                 }
             }
             Divider()

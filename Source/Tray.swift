@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import Carbon
 import CoreWLAN
-import IOKit.ps
 
 private func sourceString(_ source: TISInputSource, _ key: CFString) -> String? {
     guard let p = TISGetInputSourceProperty(source,key) else { return nil }
@@ -14,18 +13,6 @@ private func inputCode() -> String {
           let langs = Unmanaged<CFArray>.fromOpaque(p).takeUnretainedValue() as? [String],
           let first = langs.first else { return "⌨" }
     return first.components(separatedBy:"-")[0].uppercased()
-}
-private func charge() -> Int? {
-    guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-          let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
-    for source in sources {
-        guard let dict = IOPSGetPowerSourceDescription(info,source)?.takeUnretainedValue() as? [String:Any],
-              dict[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
-              let value = dict[kIOPSCurrentCapacityKey] as? Int,
-              let max = dict[kIOPSMaxCapacityKey] as? Int, max > 0 else { continue }
-        return min(100,value*100/max)
-    }
-    return nil
 }
 struct Extra {
     let label: String
@@ -277,9 +264,10 @@ final class Tray: NSObject, NSPopoverDelegate {
         }))
         system(.wifi,"Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi")
         system(.sound,"Звук","speaker.wave.2")
-        if let value = charge() {
-            let step = min(4,(value+12)/25)*25
-            system(.battery,"Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent")
+        if let battery = BatteryStatus.current() {
+            controls.append(("Аккумулятор · " + battery.description, nil, nil, battery.trayIcon, { button in
+                self.showControls(.battery, above:button)
+            }))
         }
         // Ignore native duplicates and the intentionally hidden Control Center and Spotlight.
         let excludedFamilies: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock","spotlight"]
@@ -291,7 +279,9 @@ final class Tray: NSObject, NSPopoverDelegate {
             }),at:0)
         }
         for extra in extraItems where extra.app.bundleIdentifier?.hasPrefix("com.apple.") == true {
-            controls.append((extra.label,nil,nil,extra.app.icon,
+            let icon = extra.app.icon?.copy() as? NSImage
+            icon?.size = NSSize(width:17,height:17)
+            controls.append((extra.label,nil,nil,icon,
                              { button in self.showExtra(extra,above:button) }))
         }
         let slots = max(2,Int(width*0.32/32))
@@ -315,8 +305,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             let b = buttons[i]; b.tag = i; b.toolTip = c.label; b.setAccessibilityLabel(c.label)
             b.title = c.text ?? ""
             if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
-            else if let icon = c.icon?.copy() as? NSImage { icon.size = NSSize(width:17,height:17); b.image = icon }
-            else { b.image = nil }
+            else { b.image = c.icon }
             b.frame = NSRect(x:left+CGFloat(i)*32,y:7,width:32,height:36)
         }
         return left
