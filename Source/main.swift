@@ -496,7 +496,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         guard AXIsProcessTrusted(), !querying else { return }
         if !CommandLine.arguments.contains("--ui-check") {
             if zoomMonitor == nil { monitorTitleBarZoom() }
-            if defaults.bool(forKey: "commandShiftLanguage") { _ = layoutShortcut.start() }
+            _ = layoutShortcut.apply(LayoutShortcutMode.saved(in: defaults))
             if defaults.bool(forKey: "blockMenuBarHover") { _ = menuBarEdge.start() }
         }
         querying = true

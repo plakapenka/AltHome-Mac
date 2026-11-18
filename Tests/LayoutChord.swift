@@ -9,8 +9,8 @@ struct LayoutChordTests {
         let shift: Event = (.flagsChanged, .maskShift)
         let both: Event = (.flagsChanged, [.maskCommand, .maskShift])
         let released: Event = (.flagsChanged, [])
-        func verify(_ events: [Event], switches: [Int]) {
-            var chord = LayoutChord()
+        func verify(_ events: [Event], modifier: CGEventFlags = .maskCommand, switches: [Int]) {
+            var chord = LayoutChord(modifier: modifier)
             let actual = events.indices.filter { chord.handle(events[$0].0, flags: events[$0].1) }
             precondition(actual == switches)
         }
@@ -22,6 +22,23 @@ struct LayoutChordTests {
         verify([shift, (.keyDown, shift.1), both, command, released], switches: [])
         verify([command, both, (.flagsChanged, [.maskControl, .maskCommand, .maskShift]), both, shift, released], switches: [])
         verify([command, both, (.keyDown, both.1), shift, released, command, both, command, released], switches: [8])
+        let control: Event = (.flagsChanged, .maskControl)
+        let remapped: Event = (.flagsChanged, [.maskControl, .maskShift])
+        verify([control, remapped, shift, released, shift, remapped, control, released], modifier: .maskControl, switches: [3,7])
+        verify([command, both, shift, released], modifier: .maskControl, switches: [])
+        verify([control, remapped, shift, released], switches: [])
+        verify([control, remapped, (.keyDown, remapped.1), shift, released], modifier: .maskControl, switches: [])
+        verify([control, remapped, (.flagsChanged, [.maskCommand, .maskControl, .maskShift]), remapped, shift, released], modifier: .maskControl, switches: [])
+        let suite = "local.taskshelf.tests." + UUID().uuidString
+        let prefs = UserDefaults(suiteName: suite)!
+        defer { prefs.removePersistentDomain(forName: suite) }
+        precondition(LayoutShortcutMode.saved(in: prefs) == .system)
+        prefs.set(true, forKey: "commandShiftLanguage")
+        precondition(LayoutShortcutMode.saved(in: prefs) == .commandShift)
+        for mode in LayoutShortcutMode.allCases {
+            prefs.set(mode.rawValue, forKey: "layoutShortcutMode")
+            precondition(LayoutShortcutMode.saved(in: prefs) == mode)
+        }
         print("PASS modifier order, release, ordinary shortcuts, extra modifiers and pointer gestures")
     }
 }
