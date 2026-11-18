@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Carbon
 import CoreWLAN
 import IOKit.ps
@@ -62,19 +63,11 @@ final class Tray {
     var scanTime = Date.distantPast
     var scanning = false
     var surface: NSView!
-    var placement: Task<Void,Never>?
-    private var calendarPopover: NSPopover?
-    private var upperBarMonitor: Any?
+    private var popover: NSPopover?
+    private weak var popoverAnchor: NSButton?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
-        upperBarMonitor = NSEvent.addGlobalMonitorForEvents(matching:.leftMouseDown) { [weak self] _ in
-            let mouse = NSEvent.mouseLocation
-            if NSScreen.screens.contains(where:{ $0.frame.contains(mouse) && $0.frame.maxY-mouse.y < 36 }) {
-                self?.placement?.cancel()
-                self?.navigation?.cancel()
-            }
-        }
         let font = NSFont.systemFont(ofSize:26, weight:.medium)
         if let symbol = NSImage(systemSymbolName:"apple.logo", accessibilityDescription:"Меню Apple") {
             apple.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize, weight:.medium)) ?? symbol
@@ -172,11 +165,8 @@ final class Tray {
         // A menu can keep AXPress pending until the user makes a selection.
         return result == .success || result == .cannotComplete
     }
-    private var navigation: Task<Void,Never>?
     @objc func showClock() {
-        navigation?.cancel()
-        placement?.cancel()
-        if let popover = calendarPopover, popover.isShown { popover.performClose(nil); return }
+        if dismissPopover(for:owner.clockLabel) { return }
         let calendar = NSDatePicker()
         calendar.datePickerStyle = .clockAndCalendar
         calendar.datePickerElements = [.yearMonthDay]
@@ -194,65 +184,38 @@ final class Tray {
         view.addSubview(showNotifications)
         let controller = NSViewController()
         controller.view = view
-        let popover = NSPopover()
-        popover.contentViewController = controller
-        popover.behavior = .transient
-        calendarPopover = popover
-        popover.show(relativeTo:owner.clockLabel.bounds,of:owner.clockLabel,preferredEdge:.maxY)
+        present(controller,above:owner.clockLabel)
     }
     @objc private func openNotifications() {
-        calendarPopover?.performClose(nil)
+        popover?.performClose(nil)
         if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
     }
 
-    private func openSystemMenu(_ key:String, pane:String, anchor:NSButton) {
-        navigation?.cancel()
-        if let entry = extras.first(where:{ family($0) == key }),
-           press(entry) { anchorControlCenter(to:anchor); return }
-        guard let module = ["sound":"Sound","wifi":"WiFi","bluetooth":"Bluetooth","battery":"Battery"][key],
-              let center = extras.first(where:{ family($0) == "control" }),
-              let app = NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.controlcenter").first else {
-            openSettings(pane)
-            return
+    private func dismissPopover(for anchor: NSButton) -> Bool {
+        let wasOpen = popover?.isShown == true && popoverAnchor === anchor
+        popover?.performClose(nil)
+        return wasOpen
+    }
+    private func present(_ controller:NSViewController, above anchor:NSButton) {
+        let panel = NSPopover()
+        panel.animates = false
+        panel.behavior = .transient
+        panel.contentViewController = controller
+        popover = panel
+        popoverAnchor = anchor
+        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
+    }
+    private func showControls(_ page:TrayPage, above anchor:NSButton) {
+        if dismissPopover(for:anchor) { return }
+        let controls = TrayControls(initial:page) { [weak self] pane in
+            self?.popover?.performClose(nil)
+            self?.openSettings(pane)
         }
-        let root = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(root,0.3)
-        func moduleGroup() -> AXUIElement? {
-            for w in attr(root,kAXWindowsAttribute) as? [AXUIElement] ?? [] {
-                let groups = attr(w,kAXChildrenAttribute) as? [AXUIElement] ?? []
-                for group in groups {
-                    let children = attr(group,kAXChildrenAttribute) as? [AXUIElement] ?? []
-                    if let target = children.first(where:{ attr($0,kAXIdentifierAttribute) as? String == "module-" + module }) { return target }
-                }
-            }
-            return nil
-        }
-        if moduleGroup() == nil && !press(center) { openSettings(pane); return }
-        anchorControlCenter(to:anchor)
-        navigation = Task { @MainActor in
-            for _ in 0..<12 {
-                guard !Task.isCancelled else { return }
-                if let group = moduleGroup() {
-                    for child in [group] + (attr(group,kAXChildrenAttribute) as? [AXUIElement] ?? []) {
-                        var names: CFArray?
-                        AXUIElementCopyActionNames(child,&names)
-                        if let action = (names as? [String])?.first(where:{
-                            let name = $0.components(separatedBy:"\n").first?.lowercased() ?? ""
-                            return name.contains("подробнее") || name.contains("details")
-                        }), AXUIElementPerformAction(child,action as CFString) == .success { return }
-                    }
-                    return // Keep the live controls available when the OS has no detail action.
-                }
-                try? await Task.sleep(nanoseconds:75_000_000)
-            }
-        }
+        present(NSHostingController(rootView:controls),above:anchor)
     }
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []
     @objc func invoke(_ b:NSButton) {
-        navigation?.cancel()
-        placement?.cancel()
-        calendarPopover?.performClose(nil)
         if actions.indices.contains(b.tag) { actions[b.tag](b) }
     }
     func layout(_ width:CGFloat) -> CGFloat {
@@ -260,21 +223,21 @@ final class Tray {
         scan()
         var controls: [Control] = []
         let wifi = CWWiFiClient.shared().interface()
-        func system(_ key:String,_ label:String,_ symbol:String,_ pane:String) {
-            controls.append((label,symbol,nil,nil,{ button in self.openSystemMenu(key,pane:pane,anchor:button) }))
+        func system(_ page:TrayPage, _ label:String, _ symbol:String) {
+            controls.append((label,symbol,nil,nil,{ button in self.showControls(page,above:button) }))
         }
         controls.append(("Источник ввода",nil,inputCode(),nil,{ button in
-            self.navigation?.cancel()
+            self.popover?.performClose(nil)
             self.inputs(button)
         }))
-        system("wifi","Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi","com.apple.wifi-settings-extension")
-        system("sound","Звук","speaker.wave.2","com.apple.Sound-Settings.extension")
-        system("bluetooth","Bluetooth","antenna.radiowaves.left.and.right","com.apple.BluetoothSettings")
+        system(.wifi,"Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi")
+        system(.sound,"Звук","speaker.wave.2")
+        system(.bluetooth,"Bluetooth","antenna.radiowaves.left.and.right")
         if let value = charge() {
             let step = min(4,(value+12)/25)*25
-            system("battery","Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent","com.apple.Battery-Settings.extension")
+            system(.battery,"Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent")
         }
-        system("control","Пункт управления","switch.2","com.apple.ControlCenter-Settings.extension")
+        system(.control,"Пункт управления","switch.2")
         let represented: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
         for extra in extras where !represented.contains(family(extra)) {
             controls.append((extra.label,nil,nil,extra.app.icon,{ button in self.showExtra(extra,above:button) }))
