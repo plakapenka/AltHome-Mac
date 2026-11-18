@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 final class OutsideClickMonitor {
     private var monitors: [Any] = []
@@ -32,25 +31,30 @@ final class OutsideClickMonitor {
     deinit { stop() }
 }
 
-final class StartPanel: NSPanel {
+final class SlidingShelfPanel: NSPanel {
     private let outside = OutsideClickMonitor()
-    private let card: NSHostingView<StartMenu>
-    private weak var anchor: NSButton?
+    private let card: NSView
+    private let onShow: ((NSWindow) -> Void)?
+    private(set) weak var anchor: NSButton?
     private var transition = 0
     private(set) var isClosing = false
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    init(menu: StartMenu, above anchor: NSButton, in shelf: NSWindow, screen: NSScreen) {
+    init(title: String, card: NSView, above anchor: NSButton, in shelf: NSWindow, screen: NSScreen,
+         onShow: ((NSWindow) -> Void)? = nil) {
         self.anchor = anchor
-        card = NSHostingView(rootView:menu)
+        self.card = card
+        self.onShow = onShow
+        let size = card.fittingSize
         let bounds = screen.visibleFrame
-        let x = min(max(bounds.minX+8,shelf.frame.minX+8), bounds.maxX-menu.size.width-8)
-        let rect = NSRect(origin:NSPoint(x:x,y:shelf.frame.maxY+6),size:menu.size)
+        let button = shelf.convertToScreen(anchor.convert(anchor.bounds,to:nil))
+        let x = min(max(bounds.minX+8,button.midX-size.width/2),bounds.maxX-size.width-8)
+        let rect = NSRect(origin:NSPoint(x:x,y:shelf.frame.maxY+6),size:size)
         super.init(contentRect:rect,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         isReleasedWhenClosed = false
         animationBehavior = .none
-        title = "Пуск"
+        self.title = title
         appearance = shelf.effectiveAppearance
         backgroundColor = .clear
         isOpaque = false
@@ -59,7 +63,7 @@ final class StartPanel: NSPanel {
         level = shelf.level
         collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary]
         // The stationary viewport clips the moving card exactly above the shelf.
-        let viewport = NSView(frame:NSRect(origin:.zero,size:menu.size))
+        let viewport = NSView(frame:NSRect(origin:.zero,size:size))
         viewport.wantsLayer = true
         viewport.layer?.masksToBounds = true
         contentView = viewport
@@ -71,7 +75,7 @@ final class StartPanel: NSPanel {
         viewport.addSubview(card)
     }
 
-    func showMenu() {
+    func showPanel() {
         guard let anchor, let shelf = anchor.window else { return }
         let wasVisible = isVisible
         isClosing = false
@@ -83,8 +87,7 @@ final class StartPanel: NSPanel {
         }
         makeKeyAndOrderFront(nil)
         card.layoutSubtreeIfNeeded()
-        card.rootView.focusSearch.send()
-        if let editor = firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
+        onShow?(self)
         outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
         animate(open:true)
     }

@@ -54,7 +54,7 @@ final class Tray: NSObject, NSPopoverDelegate {
     private var popover: NSPopover?
     private weak var popoverAnchor: NSButton?
     private let popoverClicks = OutsideClickMonitor()
-    private var startPanel: StartPanel?
+    private var slidingPanel: SlidingShelfPanel?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
@@ -64,32 +64,41 @@ final class Tray: NSObject, NSPopoverDelegate {
     func openSettings(_ pane:String) {
         if let url = URL(string:"x-apple.systempreferences:"+pane) { owner.ws.open(url) }
     }
-    @objc func showApple() {
-        if let startPanel, startPanel.isVisible {
-            if startPanel.isClosing { startPanel.showMenu() } else { startPanel.dismiss() }
-            return
+    private func toggleVisiblePanel(above anchor: NSButton) -> Bool {
+        if let panel = slidingPanel, panel.isVisible, panel.anchor === anchor {
+            if panel.isClosing { panel.showPanel() } else { panel.dismiss() }
+            return true
         }
+        slidingPanel?.dismiss()
         popover?.performClose(nil)
+        return false
+    }
+
+    @objc func showApple() {
+        if toggleVisiblePanel(above:apple) { return }
         guard let shelf = apple.window, let screen = shelf.screen else { return }
         startLibrary.refresh()
         let bounds = screen.visibleFrame
         let size = NSSize(width:min(580,bounds.width-32),height:min(440,bounds.maxY-shelf.frame.maxY-16))
         let menu = StartMenu(library:startLibrary, size:size, launch:{ [weak self] item in
-            self?.startPanel?.dismiss()
+            self?.slidingPanel?.dismiss()
             self?.owner.launch(item)
         }, browse:{ [weak self] in
             self?.chooseStartPin()
         }, power:{ [weak self] action in
-            self?.startPanel?.dismiss()
+            self?.slidingPanel?.dismiss()
             do { try action.requestDialog() } catch { self?.owner.notify(error.localizedDescription) }
         })
-        let panel = StartPanel(menu:menu,above:apple,in:shelf,screen:screen)
-        startPanel = panel
-        panel.showMenu()
+        let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),above:apple,in:shelf,screen:screen) { window in
+            menu.focusSearch.send()
+            if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
+        }
+        slidingPanel = panel
+        panel.showPanel()
     }
 
     private func chooseStartPin() {
-        startPanel?.dismiss()
+        slidingPanel?.dismiss()
         let chooser = NSOpenPanel()
         chooser.directoryURL = URL(fileURLWithPath:"/Applications")
         chooser.allowedContentTypes = [.applicationBundle]
@@ -168,17 +177,22 @@ final class Tray: NSObject, NSPopoverDelegate {
         return result == .success || result == .cannotComplete
     }
     @objc func showClock() {
-        if dismissPopover(for:owner.clockLabel) { return }
+        let clock = owner.clockLabel
+        if toggleVisiblePanel(above:clock) { return }
+        guard let shelf = clock.window, let screen = shelf.screen else { return }
         let calendar = ShelfCalendar { [weak self] in self?.openNotifications() }
-        present(NSHostingController(rootView:calendar),above:owner.clockLabel,dismissOnOutsideClick:true)
+        let card = NSHostingView(rootView:calendar.background(Color(nsColor:.windowBackgroundColor)))
+        let panel = SlidingShelfPanel(title:"Календарь",card:card,above:clock,in:shelf,screen:screen)
+        slidingPanel = panel
+        panel.showPanel()
     }
     private func openNotifications() {
-        popover?.performClose(nil)
+        slidingPanel?.dismiss()
         if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
     }
 
     private func dismissPopover(for anchor: NSButton) -> Bool {
-        startPanel?.dismiss()
+        slidingPanel?.dismiss()
         let wasOpen = popover?.isShown == true && popoverAnchor === anchor
         popover?.performClose(nil)
         return wasOpen
