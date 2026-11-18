@@ -4,15 +4,14 @@ import CoreBluetooth
 import IOBluetooth
 import IOKit.ps
 
-enum TrayPage: String, CaseIterable {
-    case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", battery = "Аккумулятор", control = "Пункт управления"
+enum TrayPage: String {
+    case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", battery = "Аккумулятор"
     var icon: String {
         switch self {
         case .wifi: return "wifi"
         case .sound: return "speaker.wave.2.fill"
         case .bluetooth: return "antenna.radiowaves.left.and.right"
         case .battery: return "battery.75percent"
-        case .control: return "switch.2"
         }
     }
     var settingsTitle: String {
@@ -21,7 +20,6 @@ enum TrayPage: String, CaseIterable {
         case .sound: return "Настройки звука…"
         case .bluetooth: return "Настройки Bluetooth…"
         case .battery: return "Настройки аккумулятора…"
-        case .control: return "Настройки Пункта управления…"
         }
     }
     var settings: String {
@@ -30,7 +28,6 @@ enum TrayPage: String, CaseIterable {
         case .sound: return "com.apple.Sound-Settings.extension"
         case .bluetooth: return "com.apple.BluetoothSettings"
         case .battery: return "com.apple.Battery-Settings.extension"
-        case .control: return "com.apple.ControlCenter-Settings.extension"
         }
     }
 }
@@ -202,17 +199,11 @@ private struct SoundControls: View {
 }
 
 struct TrayControls: View {
-    let initial: TrayPage
+    let page: TrayPage
     let openSettings: (String)->Void
-    @State private var detail: TrayPage?
-    private var page: TrayPage { detail ?? initial }
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
             HStack {
-                if detail != nil {
-                    Button { detail = nil } label:{ Image(systemName:"chevron.left") }
-                        .buttonStyle(.borderless).accessibilityLabel("Назад")
-                }
                 Image(systemName:page.icon).foregroundStyle(Color.accentColor)
                 Text(page.rawValue).font(.headline)
                 Spacer()
@@ -235,15 +226,6 @@ struct TrayControls: View {
                    let charge = battery[kIOPSCurrentCapacityKey] as? Int, let max = battery[kIOPSMaxCapacityKey] as? Int, max > 0 {
                     ProgressView(value:Double(charge),total:Double(max))
                     Text("\(charge*100/max)% · " + (battery[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue ? "Питание от сети" : "Питание от аккумулятора"))
-                }
-            case .control:
-                let pages: [TrayPage] = [.wifi,.sound,.bluetooth,.battery]
-                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:8) {
-                    ForEach(pages,id:\.self) { item in
-                        Button { detail = item } label:{
-                            Label(item.rawValue,systemImage:item.icon).frame(maxWidth:.infinity,alignment:.leading).padding(.vertical,7)
-                        }
-                    }
                 }
             }
             Divider()

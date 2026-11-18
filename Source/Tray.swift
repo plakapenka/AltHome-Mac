@@ -154,6 +154,7 @@ final class Tray {
     private func family(_ e:Extra) -> String {
         if e.app.bundleIdentifier?.lowercased() == "com.apple.textinputmenuagent" { return "keyboard" }
         if e.identifier == "com.apple.menuextra.clock" { return "clock" }
+        if e.identifier == "com.apple.menuextra.controlcenter" { return "control" }
         let s = (e.identifier+" "+e.label).lowercased().replacingOccurrences(of:"‑",with:"-")
         for (key,terms) in [("wifi",["wi-fi","wifi"]),("battery",["battery","аккумулятор","батаре"]),("keyboard",["inputmenu","textinput","источник ввода","меню ввода"]),("sound",["volume","sound","громкость","звук"]),("bluetooth",["bluetooth"]),("control",["control center","пункт управления","controlcenter.controlcenter"])] where terms.contains(where:{s.contains($0)}) { return key }
         return ""
@@ -208,7 +209,7 @@ final class Tray {
     }
     private func showControls(_ page:TrayPage, above anchor:NSButton) {
         if dismissPopover(for:anchor) { return }
-        let controls = TrayControls(initial:page) { [weak self] pane in
+        let controls = TrayControls(page:page) { [weak self] pane in
             self?.popover?.performClose(nil)
             self?.openSettings(pane)
         }
@@ -248,9 +249,9 @@ final class Tray {
             let step = min(4,(value+12)/25)*25
             system(.battery,"Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent")
         }
-        system(.control,"Пункт управления","switch.2")
-        let represented: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
-        let extraItems = extras.filter { !represented.contains(family($0)) }
+        // Ignore native duplicates and the intentionally hidden Control Center.
+        let excludedFamilies: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
+        let extraItems = extras.filter { !excludedFamilies.contains(family($0)) }
         let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
         if !applications.isEmpty {
             controls.insert(("Значки приложений","chevron.up",nil,nil,{ button in
