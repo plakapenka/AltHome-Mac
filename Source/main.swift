@@ -162,6 +162,10 @@ final class Tile: ShelfButton {
     var press: (() -> Void)?
     var context: (() -> NSMenu)?
     var previewHover: ((Bool) -> Void)?
+    var reorder: ((CGFloat) -> Void)?
+    var finishDrag: (() -> Void)?
+    private var pressPoint: NSPoint?
+    private var dragging = false
     private let icon = NSImageView()
     private let caption = NSTextField(labelWithString:"")
     private let indicator = NSView()
@@ -196,7 +200,27 @@ final class Tile: ShelfButton {
     }
     override func mouseDown(with event: NSEvent) {
         previewHover?(false)
-        super.mouseDown(with:event)
+        guard !event.modifierFlags.contains(.control) else { super.mouseDown(with: event); return }
+        pressPoint = event.locationInWindow
+        dragging = false
+        highlight(true)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressPoint, let strip = superview else { return }
+        let point = event.locationInWindow
+        guard dragging || hypot(point.x - pressPoint.x, point.y - pressPoint.y) >= 5 else { return }
+        dragging = true
+        highlight(false)
+        _ = strip.autoscroll(with: event)
+        let local = strip.convert(point, from: nil)
+        if local.y >= -12 && local.y <= strip.bounds.height + 12 { reorder?(local.x) }
+    }
+    override func mouseUp(with event: NSEvent) {
+        guard pressPoint != nil else { return }
+        pressPoint = nil
+        highlight(false)
+        if dragging { dragging = false; finishDrag?() }
+        else if isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) { clicked() }
     }
     @objc func clicked() { press?() }
     override func mouseEntered(with event: NSEvent) {
@@ -295,6 +319,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     private var fadingTiles: [TileID:Tile] = [:]
     var snapshots: [pid_t:[WindowEntry]] = [:]
     var layoutOrder: [TileID] = []
+    private var manualWindowOrder: [TileID] = []
+    private var draggingTile: TileID?
+    private lazy var appOrder = defaults.stringArray(forKey: "taskAppOrder") ?? []
     var observed: [CGWindowID:pid_t] = [:]
     var querying = false
     var remembered: [pid_t:AXUIElement] = [:]
@@ -503,7 +530,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let entries = apps.compactMap { app in app.bundleURL.map { Item($0,name:app.localizedName) } }
         let ranks = Dictionary(uniqueKeysWithValues:layoutOrder.enumerated().map { ($1,$0) })
         var tasks: [TaskEntry] = []
-        for item in ordered(pins,entries) {
+        let items = ordered(pins, entries)
+        let byApp = Dictionary(uniqueKeysWithValues: items.map { ($0.key, $0) })
+        for key in arranged(items.map(\.key), preferred: appOrder) {
+            guard let item = byApp[key] else { continue }
             let matches = apps.filter { ($0.bundleIdentifier ?? $0.bundleURL?.standardizedFileURL.path) == item.key }
             var appTasks: [TaskEntry] = []
             for app in matches {
@@ -522,7 +552,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 tasks.append(contentsOf:appTasks.sorted { (ranks[$0.id] ?? Int.max) < (ranks[$1.id] ?? Int.max) })
             }
         }
+        if !manualWindowOrder.isEmpty {
+            let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+            manualWindowOrder = arranged(tasks.map(\.id), preferred: manualWindowOrder)
+            tasks = manualWindowOrder.compactMap { byID[$0] }
+        }
         layoutOrder = tasks.map { $0.id }
+        if let draggingTile, !layoutOrder.contains(draggingTile) { self.draggingTile = nil }
         let keys = Set(layoutOrder)
         let animateTiles = bar.isVisible && !ws.accessibilityDisplayShouldReduceMotion
         for key in Array(tiles.keys) where !keys.contains(key) {
@@ -563,9 +599,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 self.refresh()
             }
             if task.app == nil && preview.anchor === tile { preview.hide() }
+            tile.reorder = { [weak self] x in self?.moveTask(task.id, toX: x) }
+            tile.finishDrag = { [weak self] in self?.draggingTile = nil }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
-                if hovering && (!self.tray.dockVisible || self.tray.dockPinned) { self.preview.show(for:tile, task:task, frame:windowRect) }
+                if hovering && self.draggingTile == nil && (!self.tray.dockVisible || self.tray.dockPinned) { self.preview.show(for:tile, task:task, frame:windowRect) }
                 else if self.preview.anchor === tile { self.preview.hide() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
@@ -577,6 +615,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         updateStripWidth()
     }
+    private func moveTask(_ id: TileID, toX x: CGFloat) {
+        guard let index = layoutOrder.firstIndex(of: id) else { return }
+        draggingTile = id
+        preview.hide()
+        let centers = layoutOrder.compactMap { tiles[$0]?.frame.midX }
+        guard centers.count == layoutOrder.count else { return }
+        let target = dragDestination(from: index, centers: centers, x: x)
+        guard index != target else { return }
+        var moved = layoutOrder
+        moved.insert(moved.remove(at: index), at: target)
+        manualWindowOrder = moved
+        var seen = Set<String>()
+        let apps = moved.compactMap { tiles[$0]?.item.key }.filter { seen.insert($0).inserted }
+        appOrder = rememberedOrder(apps, previous: appOrder)
+        defaults.set(appOrder, forKey: "taskAppOrder")
+        render()
+    }
+
     private func updateStripWidth() {
         let lastTile = tiles.values.map { $0.frame.maxX }.max() ?? 0
         let lastFadingTile = fadingTiles.values.map { $0.frame.maxX }.max() ?? 0
