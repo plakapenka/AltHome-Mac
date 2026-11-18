@@ -169,26 +169,10 @@ final class Tray: NSObject, NSPopoverDelegate {
     }
     @objc func showClock() {
         if dismissPopover(for:owner.clockLabel) { return }
-        let calendar = NSDatePicker()
-        calendar.datePickerStyle = .clockAndCalendar
-        calendar.datePickerElements = [.yearMonthDay]
-        calendar.dateValue = Date()
-        calendar.sizeToFit()
-        let view = NSView()
-        let showNotifications = NSButton(title:"Центр уведомлений",target:self,action:#selector(openNotifications))
-        showNotifications.bezelStyle = .rounded
-        showNotifications.sizeToFit()
-        let width = max(calendar.frame.width,showNotifications.frame.width)+24
-        showNotifications.setFrameOrigin(NSPoint(x:(width-showNotifications.frame.width)/2,y:8))
-        calendar.setFrameOrigin(NSPoint(x:(width-calendar.frame.width)/2,y:showNotifications.frame.maxY+8))
-        view.frame.size = NSSize(width:width,height:calendar.frame.maxY+12)
-        view.addSubview(calendar)
-        view.addSubview(showNotifications)
-        let controller = NSViewController()
-        controller.view = view
-        present(controller,above:owner.clockLabel)
+        let calendar = ShelfCalendar { [weak self] in self?.openNotifications() }
+        present(NSHostingController(rootView:calendar),above:owner.clockLabel,dismissOnOutsideClick:true)
     }
-    @objc private func openNotifications() {
+    private func openNotifications() {
         popover?.performClose(nil)
         if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
     }
