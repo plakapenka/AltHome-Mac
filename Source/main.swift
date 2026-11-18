@@ -30,10 +30,32 @@ func element(_ e: AXUIElement, _ key: String) -> AXUIElement? {
 }
 func minimized(_ window: AXUIElement) -> Bool { attr(window,kAXMinimizedAttribute) as? Bool == true }
 func windows(_ app: NSRunningApplication) -> (AXUIElement?, [AXUIElement]) {
+    let query = queryWindows(app)
+    return (query.focused, query.all ?? [])
+}
+func queryWindows(_ app: NSRunningApplication) -> (focused: AXUIElement?, all: [AXUIElement]?) {
     let e = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(e, 0.35)
-    let all = attr(e,kAXWindowsAttribute) as? [AXUIElement] ?? []
-    return (element(e,kAXFocusedWindowAttribute), all)
+    return (element(e,kAXFocusedWindowAttribute), attr(e,kAXWindowsAttribute) as? [AXUIElement])
+}
+
+// Without accessibility access, follow actual window IDs. A window seen on screen
+// can still be restored after it becomes minimized or its application is hidden.
+func observedWindows(previous: [CGWindowID:pid_t]) -> [CGWindowID:pid_t] {
+    guard let rows = CGWindowListCopyWindowInfo([.optionAll,.excludeDesktopElements],kCGNullWindowID) as? [[String:Any]] else { return previous }
+    var result: [CGWindowID:pid_t] = [:]
+    for row in rows {
+        guard row[kCGWindowLayer as String] as? Int == 0,
+              let id = row[kCGWindowNumber as String] as? CGWindowID,
+              let pid = row[kCGWindowOwnerPID as String] as? pid_t,
+              let bounds = row[kCGWindowBounds as String] as? [String:CGFloat],
+              (bounds["Width"] ?? 0) > 1, (bounds["Height"] ?? 0) > 1 else { continue }
+        if previous[id] == pid || (row[kCGWindowIsOnscreen as String] as? Bool == true &&
+                                   (row[kCGWindowAlpha as String] as? Double ?? 1) > 0) {
+            result[id] = pid
+        }
+    }
+    return result
 }
 func setMini(_ w: AXUIElement, _ value: Bool) -> Bool {
     AXUIElementSetAttributeValue(w,kAXMinimizedAttribute as CFString,(value ? kCFBooleanTrue : kCFBooleanFalse)) == .success
@@ -188,6 +210,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var tiles: [TileID:Tile] = [:]
     var snapshots: [pid_t:[WindowEntry]] = [:]
     var layoutOrder: [TileID] = []
+    var observed: [CGWindowID:pid_t] = [:]
     var querying = false
     var remembered: [pid_t:AXUIElement] = [:]
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
@@ -284,6 +307,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 self.render()
                 guard self.tiles[firstID] === a, self.tiles[secondID] == nil else { exit(8) }
                 print("PASS: two separately labelled wide buttons, stable order, removal on close")
+                let item = a.item
+                let savedPins = self.pins
+                self.pins.removeAll { $0.key == item.key }
+                self.snapshots[pid] = []
+                self.render()
+                guard !self.tiles.values.contains(where:{ $0.item.key == item.key }) else { exit(10) }
+                self.pins.append(item)
+                self.render()
+                guard let pin = self.tiles[.app(item.key)], pin.frame.width == 48,
+                      pin.context?().item(withTitle:"Закрыть окно") == nil else { exit(11) }
+                self.snapshots[pid] = [second]
+                self.render()
+                guard self.tiles[secondID] != nil, self.tiles[.app(item.key)] == nil else { exit(12) }
+                self.pins = savedPins
+                print("PASS: closing last window removes task, preserves compact pin, reopening restores task")
                 NSApp.terminate(nil)
             }
         }
@@ -291,11 +329,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
     func liveApps() -> [NSRunningApplication] {
         ws.runningApplications.filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.bundleURL != nil && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
     }
-    func resolve(_ item: Item) -> NSRunningApplication? {
-        let matches = liveApps().filter { ($0.bundleIdentifier ?? $0.bundleURL?.standardizedFileURL.path) == item.key }
-        return matches.first(where: { $0.isActive }) ?? matches.first
-    }
     @objc func refresh() {
+        observed = observedWindows(previous:observed)
         if !AXIsProcessTrusted() { snapshots.removeAll() }
         render()
         guard AXIsProcessTrusted(), !querying else { return }
@@ -304,7 +339,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos:.userInitiated).async {
             var result: [pid_t:[WindowEntry]] = [:]
             for app in apps {
-                let (focused,all) = windows(app)
+                let (focused, listed) = queryWindows(app)
+                guard let all = listed else { continue }
                 result[app.processIdentifier] = all.compactMap { w in
                     guard attr(w,kAXRoleAttribute) as? String == kAXWindowRole else { return nil }
                     return WindowEntry(window:w,title:attr(w,kAXTitleAttribute) as? String ?? "",focused:(focused.map { CFEqual($0,w) } ?? false) && !minimized(w))
@@ -333,19 +369,28 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let pids = Set(apps.map { $0.processIdentifier })
         remembered = remembered.filter { pids.contains($0.key) }
         expanded.removeAll { !pids.contains($0.0) }
+        let observedOwners = Set(observed.values)
         let entries = apps.compactMap { app in app.bundleURL.map { Item($0,name:app.localizedName) } }
         let ranks = Dictionary(uniqueKeysWithValues:layoutOrder.enumerated().map { ($1,$0) })
         var tasks: [TaskEntry] = []
         for item in ordered(pins,entries) {
             let matches = apps.filter { ($0.bundleIdentifier ?? $0.bundleURL?.standardizedFileURL.path) == item.key }
-            let perWindow = matches.flatMap { app in
-                (snapshots[app.processIdentifier] ?? []).map {
-                    TaskEntry(id:.window(app.processIdentifier,$0.window),item:item,app:app,entry:$0)
+            var appTasks: [TaskEntry] = []
+            for app in matches {
+                let pid = app.processIdentifier
+                if let windows = snapshots[pid] {
+                    appTasks.append(contentsOf:windows.map {
+                        TaskEntry(id:.window(pid,$0.window),item:item,app:app,entry:$0)
+                    })
+                } else if observedOwners.contains(pid), !appTasks.contains(where:{ $0.id == .app(item.key) }) {
+                    appTasks.append(TaskEntry(id:.app(item.key),item:item,app:app,entry:nil))
                 }
-            }.sorted { (ranks[$0.id] ?? Int.max) < (ranks[$1.id] ?? Int.max) }
-            if perWindow.isEmpty {
-                tasks.append(TaskEntry(id:.app(item.key),item:item,app:matches.first(where:{$0.isActive}) ?? matches.first,entry:nil))
-            } else { tasks.append(contentsOf:perWindow) }
+            }
+            if appTasks.isEmpty && pins.contains(where:{ $0.key == item.key }) {
+                tasks.append(TaskEntry(id:.app(item.key),item:item,app:nil,entry:nil))
+            } else {
+                tasks.append(contentsOf:appTasks.sorted { (ranks[$0.id] ?? Int.max) < (ranks[$1.id] ?? Int.max) })
+            }
         }
         layoutOrder = tasks.map { $0.id }
         let keys = Set(layoutOrder)
@@ -367,9 +412,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
                     if app.isActive, focused.map({ CFEqual($0,entry.window) }) == true, !minimized(entry.window) {
                         if !setMini(entry.window,true) { self.notify("Это окно не поддерживает сворачивание.") }
                     } else { self.bring(entry.window,app) }
-                } else { self.toggle(item) }
+                } else if let app = task.app, !app.isTerminated { self.toggle(item,app) }
+                else { self.launch(item) }
                 self.refresh()
             }
+            if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
                 if hovering { self.preview.show(for:tile, task:task, frame:self.windowRect) }
@@ -391,8 +438,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if let error { DispatchQueue.main.async { self.notify(error.localizedDescription) } }
         }
     }
-    func toggle(_ item: Item) {
-        guard let app = resolve(item) else { launch(item); return }
+    func toggle(_ item: Item, _ app: NSRunningApplication) {
         guard AXIsProcessTrusted() else {
             if app.isActive { app.hide() } else { app.unhide(); app.activate(options:[]) }
             return
@@ -469,7 +515,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if pinned { self.pins.removeAll { $0.key == item.key } } else { self.pins.append(item) }
             self.save()
         }
-        guard let app = owner ?? resolve(item), !app.isTerminated else { return menu }
+        guard let app = owner, !app.isTerminated else { return menu }
         if AXIsProcessTrusted() {
             let (focused,all) = windows(app)
             if let w = target ?? focused ?? all.first, (attr(w,"AXFullScreen") as? Bool) != true {
