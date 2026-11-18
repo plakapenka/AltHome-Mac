@@ -330,6 +330,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let desktopButton = DesktopButton(frame:.zero)
     let desktop = ShowDesktop()
     let menuBarEdge = MenuBarEdge()
+    let fnCommand = FnCommand()
     lazy var layoutShortcut = LayoutShortcut { [weak self] in self?.tray.nextInputLanguage() }
     let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
@@ -479,6 +480,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        _ = fnCommand.setEnabled(false)
         layoutShortcut.stop()
         menuBarEdge.stop()
         if !CommandLine.arguments.contains("--ui-check") {
@@ -496,6 +498,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         guard AXIsProcessTrusted(), !querying else { return }
         if !CommandLine.arguments.contains("--ui-check") {
             if zoomMonitor == nil { monitorTitleBarZoom() }
+            _ = fnCommand.setEnabled(defaults.bool(forKey: "fnCommandLetters"))
             _ = layoutShortcut.apply(LayoutShortcutMode.saved(in: defaults))
             if defaults.bool(forKey: "blockMenuBarHover") { _ = menuBarEdge.start() }
         }

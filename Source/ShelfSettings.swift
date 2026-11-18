@@ -9,6 +9,7 @@ private enum SettingsPage: String, CaseIterable {
 private struct ShelfSettings: View {
     unowned let owner: Delegate
     @State private var page: SettingsPage? = .general
+    @AppStorage("fnCommandLetters") private var fnCommandLetters = false
     @AppStorage("layoutShortcutMode") private var layoutShortcutMode: String?
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
     @AppStorage("showDate") private var showsDate = true
@@ -90,6 +91,15 @@ private struct ShelfSettings: View {
                                 ForEach(LayoutShortcutMode.allCases, id: \.self) { Text($0.title).tag($0) }
                             }
                             .help("Если Command и Control поменяны местами в macOS, для физической клавиши ⌘ выберите Control + Shift.")
+                            Toggle("Fn как ⌘ для букв", isOn: Binding(get: { fnCommandLetters }, set: { enabled in
+                                if enabled && !AXIsProcessTrusted() { owner.requestWindowAccess(); return }
+                                guard owner.fnCommand.setEnabled(enabled) else {
+                                    owner.notify("Не удалось включить сочетания Fn. Проверьте «Универсальный доступ» для TaskShelf.")
+                                    return
+                                }
+                                fnCommandLetters = enabled
+                            }))
+                            .help("Fn+C копирует, Fn+V вставляет, Fn+Z отменяет действие. Одиночное Fn выполняет действие из настроек macOS.")
                             Toggle("Блокировать строку меню при наведении", isOn: Binding(get: { blockMenuBarHover }, set: { enabled in
                                 if enabled {
                                     guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
@@ -135,7 +145,7 @@ private struct ShelfSettings: View {
                     }
                 }.formStyle(.grouped)
             }
-        }.frame(width: 590, height: 380)
+        }.frame(width: 590, height: 420)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refresh() }
     }
 }
