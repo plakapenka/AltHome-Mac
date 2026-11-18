@@ -48,6 +48,7 @@ struct DockEntry: Equatable {
 
 final class DockMirror: ObservableObject {
     @Published private(set) var entries: [DockEntry] = []
+    @Published private(set) var iconSize: CGFloat = 45
     var onFirstEntries: (() -> Void)?
     private var reading = false
     func refresh() {
@@ -55,8 +56,11 @@ final class DockMirror: ObservableObject {
         reading = true
         DispatchQueue.global(qos: .utility).async {
             let entries = DockEntry.read()
+            let tile = CFPreferencesCopyAppValue("tilesize" as CFString, "com.apple.dock" as CFString) as? NSNumber
+            let size = CGFloat(min(128, max(16, tile?.doubleValue ?? 48)))
             DispatchQueue.main.async {
                 self.reading = false
+                if self.iconSize != size { self.iconSize = size }
                 if self.entries != entries { self.entries = entries }
                 if !entries.isEmpty {
                     let ready = self.onFirstEntries
@@ -72,37 +76,60 @@ struct DockRow: View {
     @ObservedObject var mirror: DockMirror
     let availableWidth: CGFloat
     let open: (DockEntry) -> Void
-    @State private var hover: Int?
+    static let cornerRadius: CGFloat = 18
 
-    static func width(for entries: [DockEntry]) -> CGFloat {
-        16 + entries.reduce(0) { $0 + ($1.role == "AXSeparatorDockItem" ? 13 : 50) }
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+    }
+
+    @ViewBuilder private var plate: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(.regularMaterial)
+                .overlay(shape.strokeBorder(.primary.opacity(0.16), lineWidth: 0.5))
+        }
     }
 
     var body: some View {
+        let count = mirror.entries.filter { $0.role != "AXSeparatorDockItem" }.count
+        let separators = mirror.entries.count - count
+        let margins = CGFloat(16 + separators * 12)
+        let fitting = (availableWidth - margins) / CGFloat(max(count, 1)) - 2
+        let side = min(mirror.iconSize, max(24, floor(fitting)))
+        let width = min(availableWidth, margins + CGFloat(count) * (side + 2))
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(mirror.entries.indices, id: \.self) { i in
                     let entry = mirror.entries[i]
                     if entry.role == "AXSeparatorDockItem" {
-                        Divider().frame(width: 13, height: 34)
+                        Rectangle().fill(.primary.opacity(0.22))
+                            .frame(width: 1, height: side * 0.76).frame(width: 12)
                     } else {
                         Button { open(entry) } label: {
                             VStack(spacing: 1) {
-                                Image(nsImage: entry.icon).resizable().scaledToFit().frame(width: 40, height: 40)
-                                Circle().fill(entry.running ? Color.primary : .clear).frame(width: 4, height: 4)
+                                Image(nsImage: entry.icon).resizable().scaledToFit().frame(width: side, height: side)
+                                Circle().fill(entry.running ? Color.primary.opacity(0.85) : .clear)
+                                    .frame(width: 3.5, height: 3.5)
                             }
-                            .frame(width: 50, height: 52)
-                            .background(MenuAppearance.selection(hover == i))
+                            .frame(width: side + 2, height: side + 14)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain).help(entry.title).accessibilityLabel(entry.title)
-                        .onHover { inside in
-                            if inside { hover = i } else if hover == i { hover = nil }
-                        }
+                        .buttonStyle(DockPressStyle()).help(entry.title).accessibilityLabel(entry.title)
                     }
                 }
-            }.padding(.horizontal, 8).padding(.vertical, 5)
-        }.frame(width: min(availableWidth, Self.width(for: mirror.entries)), height: 62).background(.regularMaterial)
+            }.padding(.horizontal, 8)
+        }
+        .frame(width: width, height: side + 14)
+        .background(plate)
+    }
+}
+
+private struct DockPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.65 : 1)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
     }
 }
 

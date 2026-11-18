@@ -42,7 +42,7 @@ final class SlidingShelfPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     init(title: String, card: NSView, above anchor: NSButton, in shelf: NSWindow, screen: NSScreen,
-         onShow: ((NSWindow) -> Void)? = nil) {
+         cornerRadius: CGFloat = 13, onShow: ((NSWindow) -> Void)? = nil) {
         self.anchor = anchor
         self.card = card
         self.onShow = onShow
@@ -69,7 +69,7 @@ final class SlidingShelfPanel: NSPanel {
         contentView = viewport
         card.frame = viewport.bounds
         card.wantsLayer = true
-        card.layer?.cornerRadius = 13
+        card.layer?.cornerRadius = cornerRadius
         card.layer?.cornerCurve = .continuous
         card.layer?.masksToBounds = true
         viewport.addSubview(card)

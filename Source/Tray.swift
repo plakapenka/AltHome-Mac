@@ -129,7 +129,8 @@ final class Tray: NSObject {
         let card = NSHostingView(rootView: row.onGeometryChange(for: NSSize.self) { $0.size } action: { size in
             presented?.fitDock(to: size)
         })
-        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, above: dockEdge, in: shelf, screen: screen)
+        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, above: dockEdge, in: shelf, screen: screen,
+                                      cornerRadius: DockRow.cornerRadius)
         presented = panel
         dockPanel = panel
         panel.showPanel(takingKey: false, dismissOnOutsideClick: !dockPinned)
