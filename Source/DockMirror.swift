@@ -46,9 +46,15 @@ struct DockEntry: Equatable {
     }
 }
 
+enum DockSizing {
+    static var systemSize: Double {
+        let value = CFPreferencesCopyAppValue("tilesize" as CFString, "com.apple.dock" as CFString) as? NSNumber
+        return min(128, max(16, value?.doubleValue ?? 48))
+    }
+}
+
 final class DockMirror: ObservableObject {
     @Published private(set) var entries: [DockEntry] = []
-    @Published private(set) var iconSize: CGFloat = 45
     var onFirstEntries: (() -> Void)?
     private var reading = false
     func refresh() {
@@ -56,11 +62,8 @@ final class DockMirror: ObservableObject {
         reading = true
         DispatchQueue.global(qos: .utility).async {
             let entries = DockEntry.read()
-            let tile = CFPreferencesCopyAppValue("tilesize" as CFString, "com.apple.dock" as CFString) as? NSNumber
-            let size = CGFloat(min(128, max(16, tile?.doubleValue ?? 48)))
             DispatchQueue.main.async {
                 self.reading = false
-                if self.iconSize != size { self.iconSize = size }
                 if self.entries != entries { self.entries = entries }
                 if !entries.isEmpty {
                     let ready = self.onFirstEntries
@@ -76,6 +79,11 @@ struct DockRow: View {
     @ObservedObject var mirror: DockMirror
     let availableWidth: CGFloat
     let open: (DockEntry) -> Void
+    @AppStorage("dockIconSize") private var iconSize = DockSizing.systemSize
+    @AppStorage("dockMagnifies") private var magnifies = true
+    @AppStorage("dockZoom") private var zoom = 1.55
+    @State private var pointer: CGFloat?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let cornerRadius: CGFloat = 18
 
     private var shape: RoundedRectangle {
@@ -96,32 +104,54 @@ struct DockRow: View {
         let separators = mirror.entries.count - count
         let margins = CGFloat(16 + separators * 12)
         let fitting = (availableWidth - margins) / CGFloat(max(count, 1)) - 2
-        let side = min(mirror.iconSize, max(24, floor(fitting)))
-        let width = min(availableWidth, margins + CGFloat(count) * (side + 2))
+        let side = min(CGFloat(iconSize), max(16, floor(fitting)))
+        let pitch = side + 2
+        let naturalWidth = margins + CGFloat(count) * pitch
+        var center: CGFloat = 8
+        let sizes = mirror.entries.map { entry -> CGFloat in
+            if entry.role == "AXSeparatorDockItem" { center += 12; return 0 }
+            defer { center += pitch }
+            guard magnifies, let pointer else { return side }
+            let distance = min(1, abs(center + pitch / 2 - pointer) / (2 * pitch))
+            let weight = (1 + cos(.pi * distance)) / 2
+            return side * (1 + (zoom - 1) * weight)
+        }
+        let contentWidth = margins + sizes.reduce(0, +) + CGFloat(count) * 2
+        let width = min(availableWidth, contentWidth)
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
+            HStack(alignment: .bottom, spacing: 0) {
                 ForEach(mirror.entries.indices, id: \.self) { i in
                     let entry = mirror.entries[i]
+                    let tileSize = sizes[i]
                     if entry.role == "AXSeparatorDockItem" {
                         Rectangle().fill(.primary.opacity(0.22))
-                            .frame(width: 1, height: side * 0.76).frame(width: 12)
+                            .frame(width: 1, height: side * 0.76).frame(width: 12, height: side + 14)
                     } else {
                         Button { open(entry) } label: {
                             VStack(spacing: 1) {
-                                Image(nsImage: entry.icon).resizable().scaledToFit().frame(width: side, height: side)
+                                Image(nsImage: entry.icon).resizable().scaledToFit().frame(width: tileSize, height: tileSize)
                                 Circle().fill(entry.running ? Color.primary.opacity(0.85) : .clear)
                                     .frame(width: 3.5, height: 3.5)
                             }
-                            .frame(width: side + 2, height: side + 14)
+                            .frame(width: tileSize + 2, height: tileSize + 14)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(DockPressStyle()).help(entry.title).accessibilityLabel(entry.title)
                     }
                 }
             }.padding(.horizontal, 8)
+                .contentShape(Rectangle())
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let point):
+                        if magnifies { pointer = point.x * naturalWidth / max(contentWidth, 1) }
+                    case .ended: pointer = nil
+                    }
+                }
         }
-        .frame(width: width, height: side + 14)
+        .frame(width: width, height: (sizes.max() ?? side) + 14, alignment: .bottom)
         .background(plate)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: pointer != nil)
     }
 }
 

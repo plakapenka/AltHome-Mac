@@ -12,6 +12,9 @@ private struct ShelfSettings: View {
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("mirrorSystemDock") private var mirror = false
     @AppStorage("dockPinned") private var dockPinned = false
+    @AppStorage("dockIconSize") private var iconSize = DockSizing.systemSize
+    @AppStorage("dockMagnifies") private var magnifies = true
+    @AppStorage("dockZoom") private var zoom = 1.55
     @State private var login = SMAppService.mainApp.status
     @State private var windowAccess = AXIsProcessTrusted()
     @State private var previewAccess = CGPreflightScreenCaptureAccess()
@@ -41,6 +44,20 @@ private struct ShelfSettings: View {
                             Text("Автоматически скрывать").tag(false)
                             Text("Всегда показывать").tag(true)
                         }.pickerStyle(.radioGroup).disabled(!mirror)
+                        Section {
+                            LabeledContent("Размер значков") {
+                                Slider(value: $iconSize, in: 16...128, step: 1)
+                                    .accessibilityLabel("Размер значков")
+                                Text("\(Int(iconSize)) пт").monospacedDigit().frame(width: 48, alignment: .trailing)
+                            }
+                            Toggle("Увеличение при наведении", isOn: $magnifies)
+                            LabeledContent("Увеличение") {
+                                Slider(value: $zoom, in: 1.1...2, step: 0.05)
+                                    .accessibilityLabel("Степень увеличения")
+                                Text(zoom, format: .percent.precision(.fractionLength(0)))
+                                    .monospacedDigit().frame(width: 48, alignment: .trailing)
+                            }.disabled(!magnifies)
+                        }.disabled(!mirror)
                     } else {
                         Section {
                             Toggle("Показывать дату", isOn: $showsDate)
@@ -77,7 +94,7 @@ private struct ShelfSettings: View {
                     }
                 }.formStyle(.grouped)
             }
-        }.frame(width: 535, height: 300)
+        }.frame(width: 590, height: 380)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refresh() }
     }
 }
