@@ -58,7 +58,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
 final class Tray {
     unowned let owner: Delegate
     let apple = ShelfButton(frame:.zero)
-    var buttons: [NSButton] = []
+    var buttons: [ShelfButton] = []
     var extras: [Extra] = []
     var scanTime = Date.distantPast
     var scanning = false
@@ -275,7 +275,7 @@ final class Tray {
         }
         actions = controls.map { $0.click }
         while buttons.count < controls.count {
-            let b = NSButton(); b.contentTintColor = .white; b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
+            let b = ShelfButton(frame:.zero); b.contentTintColor = .white; b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
             b.target = self; b.action = #selector(invoke(_:)); surface.addSubview(b); buttons.append(b)
         }
         while buttons.count > controls.count { buttons.removeLast().removeFromSuperview() }

@@ -235,7 +235,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var bar: Bar!
     let strip = ShelfMenuSurface()
     let scroll = NSScrollView()
-    let clockLabel = NSButton()
+    let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
     let preview = WindowPreview()
     var pins: [Item] = []
@@ -397,7 +397,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
         if geometry != frame { geometry = frame; bar.setFrame(frame,display:true) }
         let width = frame.width
-        clockLabel.frame = NSRect(x:width-60,y:15,width:54,height:20)
+        clockLabel.frame = NSRect(x:width-60,y:7,width:54,height:36)
         let trayLeft = tray.layout(width)
         scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
         clockLabel.title = fmt.string(from:Date())
