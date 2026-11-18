@@ -162,6 +162,7 @@ final class Tile: ShelfButton {
     var press: (() -> Void)?
     var context: (() -> NSMenu)?
     var previewHover: ((Bool) -> Void)?
+    var dismissPreview: (() -> Void)?
     var reorder: ((CGFloat) -> Void)?
     var finishDrag: (() -> Void)?
     private var dragImage: DragImage?
@@ -197,11 +198,11 @@ final class Tile: ShelfButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { isEnabled && super.hitTest(point) != nil ? self : nil }
     override func menu(for event: NSEvent) -> NSMenu? {
-        previewHover?(false)
+        dismissPreview?()
         return context?()
     }
     override func mouseDown(with event: NSEvent) {
-        previewHover?(false)
+        dismissPreview?()
         guard !event.modifierFlags.contains(.control) else { super.mouseDown(with: event); return }
         dragImage?.cancel()
         dragImage = nil
@@ -618,10 +619,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.reorder = { [weak self] x in self?.moveTask(task.id, toX: x) }
             tile.finishDrag = { [weak self] in self?.draggingTile = nil }
+            tile.dismissPreview = { [weak self] in self?.preview.hide() }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
-                if hovering && self.draggingTile == nil && (!self.tray.dockVisible || self.tray.dockPinned) { self.preview.show(for:tile, task:task, frame:windowRect) }
-                else if self.preview.anchor === tile { self.preview.hide() }
+                if hovering && self.draggingTile == nil && (!self.tray.dockVisible || self.tray.dockPinned) { self.preview.show(for:tile, task:task, frame:windowRect, close: self.closeWindow) }
+                else if self.preview.anchor === tile { self.preview.leftTile() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
             let width = Tile.preferredWidth(for:task.caption)
@@ -755,12 +757,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if let w = target ?? focused ?? (all.count == 1 ? all.first : nil) {
                 menu.addItem(.separator())
                 add(menu,"Закрыть окно", symbol: "xmark.rectangle") {
-                    guard let button = element(w,kAXCloseButtonAttribute),
-                          AXUIElementPerformAction(button,kAXPressAction as CFString) == .success else {
-                        self.notify("Не удалось закрыть выбранное окно.")
-                        return
-                    }
-                    self.refresh()
+                    self.closeWindow(w)
                 }
             }
         } else {
@@ -772,6 +769,15 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         return menu
     }
+    private func closeWindow(_ window: AXUIElement) {
+        guard let button = element(window, kAXCloseButtonAttribute),
+              AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
+            notify("Не удалось закрыть выбранное окно.")
+            return
+        }
+        refresh()
+    }
+
     func requestWindowAccess() {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String:true] as CFDictionary)
         if let url = URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {

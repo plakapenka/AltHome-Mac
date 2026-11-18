@@ -37,12 +37,19 @@ struct PreviewTarget {
     }
 }
 
+private final class PreviewCloseButton: ShelfButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 final class WindowPreview {
     private let panel: NSPanel
     private let image = NSImageView(frame:NSRect(x:10,y:10,width:248,height:136))
     private let title = NSTextField(labelWithString:"")
     private let icon = NSImageView(frame:NSRect(x:12,y:154,width:17,height:17))
     private let message = NSTextField(wrappingLabelWithString:"")
+    private let closeButton = PreviewCloseButton(frame: NSRect(x: 232, y: 148, width: 28, height: 28))
+    private var closeAction: (() -> Void)?
+    private var hoverTimer: Timer?
     private var pending: Task<Void,Never>?
     private(set) weak var anchor: Tile?
 
@@ -52,7 +59,7 @@ final class WindowPreview {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
+        panel.title = "Предпросмотр окна"
         panel.hidesOnDeactivate = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces,.fullScreenNone,.ignoresCycle]
@@ -65,7 +72,7 @@ final class WindowPreview {
         body.layer?.borderWidth = 0.5
         body.layer?.borderColor = NSColor(white:1,alpha:0.18).cgColor
         panel.contentView = body
-        title.frame = NSRect(x:36,y:154,width:220,height:17)
+        title.frame = NSRect(x:36,y:154,width:190,height:17)
         title.font = .systemFont(ofSize:13,weight:.medium)
         title.lineBreakMode = .byTruncatingTail
         image.imageScaling = .scaleProportionallyUpOrDown
@@ -74,10 +81,49 @@ final class WindowPreview {
         message.font = .systemFont(ofSize:12)
         message.textColor = .secondaryLabelColor
         message.alignment = .center
-        for view in [title,icon,image,message] as [NSView] { body.addSubview(view) }
+        closeButton.title = ""
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+        closeButton.imagePosition = .imageOnly
+        closeButton.isBordered = false
+        closeButton.setAccessibilityLabel("Закрыть окно")
+        closeButton.target = self
+        closeButton.action = #selector(closePreviewedWindow)
+        for view in [title,icon,image,message,closeButton] as [NSView] { body.addSubview(view) }
+    }
+
+    @objc private func closePreviewedWindow() {
+        guard let closeAction else { return }
+        hide()
+        closeAction()
+    }
+
+    func leftTile() {
+        if !panel.isVisible { hide() }
+    }
+
+    private func trackPointer() {
+        var lastInside = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard let tile = self.anchor, let bar = tile.window, !tile.visibleRect.isEmpty else { self.hide(); return }
+            let button = bar.convertToScreen(tile.convert(tile.visibleRect, to: nil))
+            // The gap between the tile and its preview is also part of the hover target.
+            let bridge = NSRect(x: button.minX, y: button.minY, width: button.width,
+                                height: max(button.height, self.panel.frame.minY - button.minY))
+            let point = NSEvent.mouseLocation
+            let now = ProcessInfo.processInfo.systemUptime
+            if bridge.contains(point) || self.panel.frame.contains(point) { lastInside = now }
+            else if now - lastInside >= 0.2 { self.hide() }
+        }
+        hoverTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     func hide() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        closeAction = nil
         pending?.cancel()
         pending = nil
         anchor = nil
@@ -85,7 +131,7 @@ final class WindowPreview {
         image.image = nil
     }
 
-    func show(for tile: Tile, task: TaskEntry, frame: @escaping (AXUIElement) -> CGRect?) {
+    func show(for tile: Tile, task: TaskEntry, frame: @escaping (AXUIElement) -> CGRect?, close: @escaping (AXUIElement) -> Void) {
         guard let app = task.app, anchor !== tile else { return }
         hide()
         anchor = tile
@@ -101,9 +147,16 @@ final class WindowPreview {
             icon.image = app.icon
             message.stringValue = "Загрузка…"
             message.isHidden = false
+            if let window = task.entry?.window, let button = element(window, kAXCloseButtonAttribute),
+               (attr(button, kAXEnabledAttribute) as? Bool) != false {
+                closeAction = { close(window) }
+            }
+            closeButton.isEnabled = closeAction != nil
+            closeButton.toolTip = closeButton.isEnabled ? "Закрыть окно" : "Закрытие этого окна недоступно"
             panel.orderFrontRegardless()
+            trackPointer()
             guard CGPreflightScreenCaptureAccess() else {
-                message.stringValue = "ПКМ по фону панели →\n«Разрешить превью окон…»"
+                message.stringValue = "Настройки TaskShelf → Основные → Превью окон"
                 return
             }
             let target = PreviewTarget(pid:app.processIdentifier,window:task.entry?.window,
