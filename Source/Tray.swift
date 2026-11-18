@@ -62,9 +62,19 @@ final class Tray {
     var scanTime = Date.distantPast
     var scanning = false
     var surface: NSView!
+    var placement: Task<Void,Never>?
+    private var calendarPopover: NSPopover?
+    private var upperBarMonitor: Any?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
+        upperBarMonitor = NSEvent.addGlobalMonitorForEvents(matching:.leftMouseDown) { [weak self] _ in
+            let mouse = NSEvent.mouseLocation
+            if NSScreen.screens.contains(where:{ $0.frame.contains(mouse) && $0.frame.maxY-mouse.y < 36 }) {
+                self?.placement?.cancel()
+                self?.navigation?.cancel()
+            }
+        }
         let font = NSFont.systemFont(ofSize:26, weight:.medium)
         if let symbol = NSImage(systemSymbolName:"apple.logo", accessibilityDescription:"Меню Apple") {
             apple.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize, weight:.medium)) ?? symbol
@@ -116,7 +126,7 @@ final class Tray {
         }
         m.addItem(.separator())
         owner.add(m,"Настройки клавиатуры…") { self.openSettings("com.apple.Keyboard-Settings.extension") }
-        m.popUp(positioning:nil,at:NSPoint(x:0,y:button.bounds.maxY+4),in:button)
+        popUp(m,above:button)
     }
     func scan() {
         guard AXIsProcessTrusted() else { extras = []; return }
@@ -156,7 +166,7 @@ final class Tray {
         return ""
     }
     @discardableResult
-    private func press(_ e:Extra) -> Bool {
+    func press(_ e:Extra) -> Bool {
         AXUIElementSetMessagingTimeout(e.target,0.4)
         let result = AXUIElementPerformAction(e.target,kAXPressAction as CFString)
         // A menu can keep AXPress pending until the user makes a selection.
@@ -165,13 +175,40 @@ final class Tray {
     private var navigation: Task<Void,Never>?
     @objc func showClock() {
         navigation?.cancel()
+        placement?.cancel()
+        if let popover = calendarPopover, popover.isShown { popover.performClose(nil); return }
+        let calendar = NSDatePicker()
+        calendar.datePickerStyle = .clockAndCalendar
+        calendar.datePickerElements = [.yearMonthDay]
+        calendar.dateValue = Date()
+        calendar.sizeToFit()
+        let view = NSView()
+        let showNotifications = NSButton(title:"Центр уведомлений",target:self,action:#selector(openNotifications))
+        showNotifications.bezelStyle = .rounded
+        showNotifications.sizeToFit()
+        let width = max(calendar.frame.width,showNotifications.frame.width)+24
+        showNotifications.setFrameOrigin(NSPoint(x:(width-showNotifications.frame.width)/2,y:8))
+        calendar.setFrameOrigin(NSPoint(x:(width-calendar.frame.width)/2,y:showNotifications.frame.maxY+8))
+        view.frame.size = NSSize(width:width,height:calendar.frame.maxY+12)
+        view.addSubview(calendar)
+        view.addSubview(showNotifications)
+        let controller = NSViewController()
+        controller.view = view
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.behavior = .transient
+        calendarPopover = popover
+        popover.show(relativeTo:owner.clockLabel.bounds,of:owner.clockLabel,preferredEdge:.maxY)
+    }
+    @objc private func openNotifications() {
+        calendarPopover?.performClose(nil)
         if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
     }
 
-    private func openSystemMenu(_ key:String, pane:String) {
+    private func openSystemMenu(_ key:String, pane:String, anchor:NSButton) {
         navigation?.cancel()
         if let entry = extras.first(where:{ family($0) == key }),
-           press(entry) { return }
+           press(entry) { anchorControlCenter(to:anchor); return }
         guard let module = ["sound":"Sound","wifi":"WiFi","bluetooth":"Bluetooth","battery":"Battery"][key],
               let center = extras.first(where:{ family($0) == "control" }),
               let app = NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.controlcenter").first else {
@@ -191,6 +228,7 @@ final class Tray {
             return nil
         }
         if moduleGroup() == nil && !press(center) { openSettings(pane); return }
+        anchorControlCenter(to:anchor)
         navigation = Task { @MainActor in
             for _ in 0..<12 {
                 guard !Task.isCancelled else { return }
@@ -211,20 +249,22 @@ final class Tray {
     }
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []
-    @objc func invoke(_ b:NSButton) { if actions.indices.contains(b.tag) { actions[b.tag](b) } }
+    @objc func invoke(_ b:NSButton) {
+        navigation?.cancel()
+        placement?.cancel()
+        calendarPopover?.performClose(nil)
+        if actions.indices.contains(b.tag) { actions[b.tag](b) }
+    }
     func layout(_ width:CGFloat) -> CGFloat {
         apple.frame = NSRect(x:1,y:3,width:44,height:44)
         scan()
-        owner.clockLabel.isEnabled = extras.contains(where:{ family($0) == "clock" })
         var controls: [Control] = []
         let wifi = CWWiFiClient.shared().interface()
         func system(_ key:String,_ label:String,_ symbol:String,_ pane:String) {
-            controls.append((label,symbol,nil,nil,{ _ in self.openSystemMenu(key,pane:pane) }))
+            controls.append((label,symbol,nil,nil,{ button in self.openSystemMenu(key,pane:pane,anchor:button) }))
         }
         controls.append(("Источник ввода",nil,inputCode(),nil,{ button in
             self.navigation?.cancel()
-            if let entry = self.extras.first(where:{ self.family($0) == "keyboard" }),
-               self.press(entry) { return }
             self.inputs(button)
         }))
         system("wifi","Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi","com.apple.wifi-settings-extension")
@@ -237,7 +277,7 @@ final class Tray {
         system("control","Пункт управления","switch.2","com.apple.ControlCenter-Settings.extension")
         let represented: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
         for extra in extras where !represented.contains(family(extra)) {
-            controls.append((extra.label,nil,nil,extra.app.icon,{ _ in self.press(extra) }))
+            controls.append((extra.label,nil,nil,extra.app.icon,{ button in self.showExtra(extra,above:button) }))
         }
         let slots = max(2,Int(width*0.32/32))
         if controls.count > slots {
@@ -246,7 +286,7 @@ final class Tray {
             controls.append(("Другие значки","chevron.up",nil,nil,{ button in
                 let menu = NSMenu()
                 for c in overflow { self.owner.add(menu,c.label) { c.click(button) } }
-                menu.popUp(positioning:nil,at:NSPoint(x:0,y:36),in:button)
+                self.popUp(menu,above:button)
             }))
         }
         actions = controls.map { $0.click }
