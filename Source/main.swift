@@ -166,6 +166,7 @@ final class Tile: ShelfButton {
     var finishDrag: (() -> Void)?
     private var dragImage: DragImage?
     private var pressPoint: NSPoint?
+    private var cancelledClick = false
     private var dragging = false
     private let icon = NSImageView()
     private let caption = NSTextField(labelWithString:"")
@@ -205,13 +206,16 @@ final class Tile: ShelfButton {
         dragImage?.cancel()
         dragImage = nil
         pressPoint = event.locationInWindow
+        cancelledClick = false
         dragging = false
         highlight(true)
     }
     override func mouseDragged(with event: NSEvent) {
         guard let pressPoint, let strip = superview else { return }
-        let point = event.locationInWindow
-        guard dragging || hypot(point.x - pressPoint.x, point.y - pressPoint.y) >= 5 else { return }
+        let cursor = event.locationInWindow
+        if abs(cursor.y - pressPoint.y) >= 5 { cancelledClick = true }
+        guard dragging || abs(cursor.x - pressPoint.x) >= 5 else { return }
+        let point = NSPoint(x: cursor.x, y: pressPoint.y)
         highlight(false)
         if !dragging, let window {
             dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint))
@@ -220,14 +224,14 @@ final class Tile: ShelfButton {
         if let window { dragImage?.follow(window.convertPoint(toScreen: point)) }
         _ = strip.autoscroll(with: event)
         let local = strip.convert(point, from: nil)
-        if local.y >= -12 && local.y <= strip.bounds.height + 12 { reorder?(local.x) }
+        reorder?(local.x)
     }
     override func mouseUp(with event: NSEvent) {
         guard pressPoint != nil else { return }
         pressPoint = nil
         highlight(false)
         if dragging { dragging = false; finishDrag?(); dragImage?.finish() }
-        else if isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) { clicked() }
+        else if !cancelledClick && isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) { clicked() }
     }
     @objc func clicked() { press?() }
     override func mouseEntered(with event: NSEvent) {
