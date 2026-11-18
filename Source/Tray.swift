@@ -169,7 +169,7 @@ final class Tray: NSObject {
             guard !self.dockPinned, self.dockAdjustment == nil else { return }
             let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
                                   height: panel.frame.maxY - shelf.frame.minY)
-            if self.dockMirror.dragging || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
+            if card?.isPressingIcon == true || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
             else if Date().timeIntervalSince(lastInside) > 0.28 { panel.dismiss(); timer.invalidate() }
         }
         dockMouseTimer = timer

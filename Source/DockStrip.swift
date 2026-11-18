@@ -8,6 +8,7 @@ private final class DockIconButton: NSButton {
     private let artwork = CALayer()
     private let dot = CALayer()
     private var down: NSPoint?
+    private var cancelledClick = false
     private var lift: DragImage?
     private let original: NSImage
 
@@ -50,14 +51,16 @@ private final class DockIconButton: NSButton {
     override func mouseDown(with event: NSEvent) {
         lift?.cancel()
         lift = nil
+        cancelledClick = false
         down = window?.convertPoint(toScreen: event.locationInWindow)
         strip?.pressedKey = entry.key
     }
     override func mouseDragged(with event: NSEvent) {
         guard let down, let window, let strip else { return }
         let point = window.convertPoint(toScreen: event.locationInWindow)
+        if abs(point.y - down.y) >= 5 { cancelledClick = true }
         if lift == nil {
-            guard hypot(point.x - down.x, point.y - down.y) >= 5 else { return }
+            guard abs(point.x - down.x) >= 5 else { return }
             // Layer-backed artwork is already cached. Draw the same pixels in the lifted tile.
             let icon = original, size = bounds.size, running = entry.running
             let image = NSImage(size: size, flipped: false) { _ in
@@ -72,7 +75,7 @@ private final class DockIconButton: NSButton {
             guard lift != nil else { return }
             strip.beginDrag(entry.key)
         }
-        lift?.follow(point)
+        lift?.follow(NSPoint(x: point.x, y: down.y))
         _ = superview?.autoscroll(with: event)
         strip.drag(entry.key, event.locationInWindow)
     }
@@ -83,7 +86,7 @@ private final class DockIconButton: NSButton {
         if let lift {
             lift.finish()
             strip?.endDrag()
-        } else if bounds.contains(convert(event.locationInWindow, from: nil)) { activate() }
+        } else if !cancelledClick && bounds.contains(convert(event.locationInWindow, from: nil)) { activate() }
     }
     func resetDrag() {
         lift?.cancel()
@@ -110,6 +113,7 @@ final class DockStrip: NSView {
     private var subscriptions = Set<AnyCancellable>()
     private var side: CGFloat = 45, zoom: CGFloat = 1.55
     fileprivate var pressedKey: String?
+    var isPressingIcon: Bool { pressedKey != nil }
     private var hoverRegion = NSRect.zero
     private var naturalWidth: CGFloat = 0, strength: CGFloat = 0, focus: CGFloat = 0
     private var lastTick = CACurrentMediaTime()
