@@ -44,6 +44,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
 
 final class Tray: NSObject, NSPopoverDelegate {
     unowned let owner: Delegate
+    private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
     let apple = ShelfButton(frame:.zero)
     var buttons: [ShelfButton] = []
     var extras: [Extra] = []
@@ -57,7 +58,7 @@ final class Tray: NSObject, NSPopoverDelegate {
     func install(_ view: NSView) {
         surface = view
         let font = NSFont.systemFont(ofSize:26, weight:.medium)
-        if let symbol = NSImage(systemSymbolName:"apple.logo", accessibilityDescription:"Меню Apple") {
+        if let symbol = NSImage(systemSymbolName:"apple.logo", accessibilityDescription:"Пуск") {
             apple.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize, weight:.medium)) ?? symbol
             apple.imagePosition = .imageOnly
             apple.imageScaling = .scaleNone
@@ -65,29 +66,43 @@ final class Tray: NSObject, NSPopoverDelegate {
             apple.attributedTitle = NSAttributedString(string:"", attributes:[.font:font,.foregroundColor:NSColor.white])
         }
         apple.contentTintColor = .white
-        apple.setAccessibilityLabel("Меню Apple")
+        apple.setAccessibilityLabel("Пуск")
         apple.isBordered = false
         apple.target = self; apple.action = #selector(showApple)
-        apple.toolTip = "Меню Apple"
+        apple.toolTip = "Пуск"
         view.addSubview(apple)
     }
     func openSettings(_ pane:String) {
         if let url = URL(string:"x-apple.systempreferences:"+pane) { owner.ws.open(url) }
     }
     @objc func showApple() {
-        if AXIsProcessTrusted(), let app = owner.ws.frontmostApplication {
-            let root = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetMessagingTimeout(root,0.4)
-            if let bar = element(root,kAXMenuBarAttribute),
-               let list = attr(bar,kAXChildrenAttribute) as? [AXUIElement],
-               let appleItem = list.first(where:{ attr($0,kAXSubroleAttribute) as? String == "AXAppleMenu" || (attr($0,kAXTitleAttribute) as? String) == "Apple" || (attr($0,kAXTitleAttribute) as? String) == "" }),
-               AXUIElementPerformAction(appleItem,kAXPressAction as CFString) == .success { return }
+        if dismissPopover(for:apple) { return }
+        startLibrary.refresh()
+        let screen = apple.window?.screen?.visibleFrame.size ?? NSSize(width:600,height:540)
+        let size = NSSize(width:min(580,screen.width-32),height:min(440,screen.height-80))
+        let menu = StartMenu(library:startLibrary, size:size, launch:{ [weak self] item in
+            self?.popover?.performClose(nil)
+            self?.owner.launch(item)
+        }, browse:{ [weak self] in
+            self?.chooseStartPin()
+        }, power:{ [weak self] action in
+            self?.popover?.performClose(nil)
+            do { try action.requestDialog() } catch { self?.owner.notify(error.localizedDescription) }
+        })
+        present(NSHostingController(rootView:menu),above:apple,size:size,dismissOnOutsideClick:true)
+    }
+
+    private func chooseStartPin() {
+        popover?.performClose(nil)
+        let chooser = NSOpenPanel()
+        chooser.directoryURL = URL(fileURLWithPath:"/Applications")
+        chooser.allowedContentTypes = [.applicationBundle]
+        chooser.canChooseDirectories = false
+        chooser.prompt = "Закрепить"
+        if chooser.runModal() == .OK, let url = chooser.url {
+            startLibrary.setPinned(Item(url),true)
         }
-        let m = NSMenu()
-        owner.add(m,"Об этом Mac") { self.owner.ws.open(URL(fileURLWithPath:"/System/Library/CoreServices/Applications/About This Mac.app")) }
-        owner.add(m,"Системные настройки…") { self.owner.ws.open(URL(fileURLWithPath:"/System/Applications/System Settings.app")) }
-        owner.add(m,"App Store…") { self.owner.ws.open(URL(fileURLWithPath:"/System/Applications/App Store.app")) }
-        m.popUp(positioning:nil,at:NSPoint(x:0,y:apple.bounds.maxY+4),in:apple)
+        showApple()
     }
     func inputs(_ button:NSButton) {
         let m = NSMenu()
