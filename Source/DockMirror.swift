@@ -117,6 +117,15 @@ final class DockEdge: NSButton {
     override func mouseEntered(with event: NSEvent) { entered?() }
 }
 
+enum DockMode: String {
+    case system, taskShelf, hidden
+
+    static func saved(in defaults: UserDefaults) -> DockMode {
+        if let raw = defaults.string(forKey: "dockMode"), let mode = DockMode(rawValue: raw) { return mode }
+        return defaults.bool(forKey: "mirrorSystemDock") ? .taskShelf : .system
+    }
+}
+
 // Only touch the two auto-hide settings. Preserve absent keys and later edits made outside TaskShelf.
 enum SystemDockVisibility {
     private static let domain = "com.apple.dock" as CFString

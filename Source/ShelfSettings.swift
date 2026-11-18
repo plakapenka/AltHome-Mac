@@ -10,7 +10,7 @@ private struct ShelfSettings: View {
     unowned let owner: Delegate
     @State private var page: SettingsPage? = .general
     @AppStorage("showDate") private var showsDate = true
-    @AppStorage("mirrorSystemDock") private var mirror = false
+    @AppStorage("dockMode") private var dockMode = DockMode.system
     @AppStorage("dockPinned") private var dockPinned = false
     @AppStorage("dockIconSize") private var iconSize = DockSizing.systemSize
     @AppStorage("dockMagnifies") private var magnifies = true
@@ -36,14 +36,18 @@ private struct ShelfSettings: View {
                     .padding(.leading, 20).padding(.top, 20)
                 Form {
                     if page == .dock {
-                        Toggle("Dock над панелью", isOn: Binding(get: { mirror }, set: {
-                            owner.tray.configureDock(enabled: $0)
+                        Picker("Режим Dock", selection: Binding(get: { dockMode }, set: {
+                            owner.tray.configureDock($0)
                             owner.render()
-                        }))
+                        })) {
+                            Text("Системный").tag(DockMode.system)
+                            Text("Dock TaskShelf").tag(DockMode.taskShelf)
+                            Text("Скрыть оба").tag(DockMode.hidden)
+                        }.pickerStyle(.segmented)
                         Picker("Отображение", selection: Binding(get: { dockPinned }, set: { owner.tray.setDockPinned($0) })) {
                             Text("Автоматически скрывать").tag(false)
                             Text("Всегда показывать").tag(true)
-                        }.pickerStyle(.radioGroup).disabled(!mirror)
+                        }.pickerStyle(.radioGroup).disabled(dockMode != .taskShelf)
                         Section {
                             LabeledContent("Размер значков") {
                                 Slider(value: Binding(get: { iconSize }, set: {
@@ -63,7 +67,7 @@ private struct ShelfSettings: View {
                                 Text(zoom, format: .percent.precision(.fractionLength(0)))
                                     .monospacedDigit().frame(width: 48, alignment: .trailing)
                             }.disabled(!magnifies)
-                        }.disabled(!mirror)
+                        }.disabled(dockMode != .taskShelf)
                         .onDisappear { owner.tray.endDockPreview() }
                     } else {
                         Section {

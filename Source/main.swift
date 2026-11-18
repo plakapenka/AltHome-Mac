@@ -394,8 +394,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
         glass.addSubview(desktopButton)
         tray.install(glass)
         if !CommandLine.arguments.contains("--ui-check") {
-            if tray.dockEnabled && AXIsProcessTrusted() { tray.configureDock(enabled: true) }
-            else { tray.configureDock(enabled: false) }
+            let mode = DockMode.saved(in: defaults)
+            tray.configureDock(mode == .taskShelf && !AXIsProcessTrusted() ? .system : mode)
         }
         timeFormatter.dateFormat = "HH:mm"
         dateFormatter.dateFormat = "dd.MM.yyyy"

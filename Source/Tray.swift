@@ -52,7 +52,7 @@ final class Tray: NSObject {
     private var dockAdjustment: DockAdjustment?
     private var editingDockSlider = false
     private var previewEnd: DispatchWorkItem?
-    var dockEnabled: Bool { owner.defaults.bool(forKey: "mirrorSystemDock") }
+    var dockEnabled: Bool { DockMode.saved(in: owner.defaults) == .taskShelf }
     private weak var dockStrip: DockStrip?
     private var dockPanel: SlidingShelfPanel?
     private var dockScreenWidth: CGFloat = 0
@@ -115,18 +115,18 @@ final class Tray: NSObject {
         dockEdge.entered = { [weak self] in self?.showDock() }
         view.addSubview(dockEdge)
     }
-    func configureDock(enabled: Bool) {
-        guard !enabled || AXIsProcessTrusted() else {
+    func configureDock(_ mode: DockMode) {
+        guard mode != .taskShelf || AXIsProcessTrusted() else {
             owner.requestWindowAccess()
             return
         }
-        guard SystemDockVisibility.apply(hidden: enabled, defaults: owner.defaults) else {
+        guard SystemDockVisibility.apply(hidden: mode != .system, defaults: owner.defaults) else {
             owner.notify("Не удалось изменить настройки системного Dock.")
             return
         }
-        owner.defaults.set(enabled, forKey: "mirrorSystemDock")
-        dockEdge.isHidden = !enabled
-        if enabled { dockMirror.refresh() }
+        owner.defaults.set(mode.rawValue, forKey: "dockMode")
+        dockEdge.isHidden = mode != .taskShelf
+        if mode == .taskShelf { dockMirror.refresh() }
         else { endDockPreview(); hideDock() }
     }
 
