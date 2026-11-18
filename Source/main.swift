@@ -164,6 +164,7 @@ final class Tile: ShelfButton {
     var previewHover: ((Bool) -> Void)?
     var reorder: ((CGFloat) -> Void)?
     var finishDrag: (() -> Void)?
+    private var dragImage: DragImage?
     private var pressPoint: NSPoint?
     private var dragging = false
     private let icon = NSImageView()
@@ -201,6 +202,8 @@ final class Tile: ShelfButton {
     override func mouseDown(with event: NSEvent) {
         previewHover?(false)
         guard !event.modifierFlags.contains(.control) else { super.mouseDown(with: event); return }
+        dragImage?.cancel()
+        dragImage = nil
         pressPoint = event.locationInWindow
         dragging = false
         highlight(true)
@@ -209,8 +212,12 @@ final class Tile: ShelfButton {
         guard let pressPoint, let strip = superview else { return }
         let point = event.locationInWindow
         guard dragging || hypot(point.x - pressPoint.x, point.y - pressPoint.y) >= 5 else { return }
-        dragging = true
         highlight(false)
+        if !dragging, let window {
+            dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint))
+        }
+        dragging = true
+        if let window { dragImage?.follow(window.convertPoint(toScreen: point)) }
         _ = strip.autoscroll(with: event)
         let local = strip.convert(point, from: nil)
         if local.y >= -12 && local.y <= strip.bounds.height + 12 { reorder?(local.x) }
@@ -219,7 +226,7 @@ final class Tile: ShelfButton {
         guard pressPoint != nil else { return }
         pressPoint = nil
         highlight(false)
-        if dragging { dragging = false; finishDrag?() }
+        if dragging { dragging = false; finishDrag?(); dragImage?.finish() }
         else if isEnabled && bounds.contains(convert(event.locationInWindow, from: nil)) { clicked() }
     }
     @objc func clicked() { press?() }
@@ -236,7 +243,7 @@ final class Tile: ShelfButton {
         let modelX = layer?.position.x ?? 0
         let visualX = oldX + (layer?.presentation()?.position.x ?? modelX) - modelX
         if frame != targetFrame { frame = targetFrame }
-        guard let layer, animate else { return }
+        guard let layer, animate, !dragging else { return }
         if appearing {
             let fade = CABasicAnimation(keyPath:"opacity")
             fade.fromValue = 0
@@ -258,6 +265,8 @@ final class Tile: ShelfButton {
     }
 
     func fadeOut(completion: @escaping () -> Void) {
+        dragImage?.cancel()
+        dragImage = nil
         isEnabled = false
         setAccessibilityElement(false)
         toolTip = nil
