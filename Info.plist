@@ -8,5 +8,6 @@
 <key>CFBundleVersion</key><string>23</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
+<key>NSBluetoothAlwaysUsageDescription</key><string>TaskShelf показывает состояние Bluetooth и подключённые устройства в панели Bluetooth.</string>
 <key>NSAccessibilityUsageDescription</key><string>Панель сворачивает и восстанавливает выбранные вами окна.</string>
 </dict></plist>
