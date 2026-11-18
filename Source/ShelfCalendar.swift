@@ -10,14 +10,12 @@ struct ShelfCalendar: View {
         return calendar
     }
 
-    let openNotifications: () -> Void
     @State private var selected: Date
     @State private var displayed: Date
     @State private var today: Date
     @State private var hovered: Date?
 
-    init(now: Date = Date(), openNotifications: @escaping () -> Void) {
-        self.openNotifications = openNotifications
+    init(now: Date = Date()) {
         _selected = State(initialValue:now)
         _displayed = State(initialValue:now)
         _today = State(initialValue:now)
@@ -114,15 +112,6 @@ struct ShelfCalendar: View {
                     ForEach(days,id:\.self) { dayButton($0) }
                 }
             }.padding(.horizontal,13).padding(.vertical,10)
-            Divider()
-            Button(action:openNotifications) {
-                HStack(spacing:9) {
-                    Image(systemName:"bell").foregroundStyle(.secondary)
-                    Text("Центр уведомлений")
-                    Spacer()
-                    Image(systemName:"chevron.right").font(.system(size:10,weight:.semibold)).foregroundStyle(.tertiary)
-                }.padding(.horizontal,18).frame(height:39).contentShape(Rectangle())
-            }.buttonStyle(.plain).font(.system(size:12,weight:.medium))
         }
         .frame(width:310).fixedSize(horizontal:false,vertical:true)
         .onReceive(NotificationCenter.default.publisher(for:.NSCalendarDayChanged)) { _ in

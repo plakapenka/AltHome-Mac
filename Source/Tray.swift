@@ -180,17 +180,12 @@ final class Tray: NSObject, NSPopoverDelegate {
         let clock = owner.clockLabel
         if toggleVisiblePanel(above:clock) { return }
         guard let shelf = clock.window, let screen = shelf.screen else { return }
-        let calendar = ShelfCalendar { [weak self] in self?.openNotifications() }
+        let calendar = ShelfCalendar()
         let card = NSHostingView(rootView:calendar.background(Color(nsColor:.windowBackgroundColor)))
         let panel = SlidingShelfPanel(title:"Календарь",card:card,above:clock,in:shelf,screen:screen)
         slidingPanel = panel
         panel.showPanel()
     }
-    private func openNotifications() {
-        slidingPanel?.dismiss()
-        if let clock = extras.first(where:{ family($0) == "clock" }) { press(clock) }
-    }
-
     private func dismissPopover(for anchor: NSButton) -> Bool {
         slidingPanel?.dismiss()
         let wasOpen = popover?.isShown == true && popoverAnchor === anchor
