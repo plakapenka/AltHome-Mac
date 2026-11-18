@@ -81,22 +81,17 @@ struct StartMenu: View {
     private func row(_ item: Item) -> some View {
         let pinned = library.pins.contains { $0.key == item.key }
         let pinLabel = pinned ? "Открепить" : "Закрепить"
-        return HStack(spacing:3) {
-            Button { launch(item) } label: {
-                HStack(spacing:9) {
-                    icon(item,24)
-                    Text(item.name).lineLimit(1)
-                    Spacer(minLength:0)
-                }.contentShape(Rectangle())
-            }.accessibilityLabel(item.name)
-            Button { library.setPinned(item,!pinned) } label: {
-                Image(systemName:pinned ? "pin.fill" : "pin").font(.system(size:12))
-                    .foregroundStyle(pinned ? Color.accentColor : .secondary)
-                    .frame(width:26,height:28).contentShape(Rectangle())
-            }.help(pinLabel).accessibilityLabel(pinLabel + " " + item.name)
+        return Button { launch(item) } label: {
+            HStack(spacing:9) {
+                icon(item,24)
+                Text(item.name).lineLimit(1)
+                Spacer(minLength:0)
+            }
+            .padding(.horizontal,7).frame(height:34)
+            .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "row"+item.key ? 0.09 : 0)))
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).padding(.horizontal,7).frame(height:34)
-        .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "row"+item.key ? 0.09 : 0)))
+        .buttonStyle(.plain).accessibilityLabel(item.name)
         .onHover { inside in updateHover("row"+item.key, inside) }
         .contextMenu { Button(pinLabel) { library.setPinned(item,!pinned) } }
     }
@@ -136,7 +131,7 @@ struct StartMenu: View {
                             .buttonStyle(.plain).help("Добавить программу…").accessibilityLabel("Добавить программу…")
                     }.frame(height:26)
                     if library.pins.isEmpty {
-                        Text("Нажмите булавку рядом с программой.")
+                        Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
                             .font(.callout).foregroundStyle(.secondary).padding(.top,8)
                     }
                     ScrollView {
