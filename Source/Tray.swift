@@ -46,6 +46,11 @@ final class Tray: NSObject {
     unowned let owner: Delegate
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
     let apple = StartButton(frame:.zero)
+    private let dockEdge = DockEdge(frame: .zero)
+    private let dockMirror = DockMirror()
+    private var dockMouseTimer: Timer?
+    var dockEnabled: Bool { owner.defaults.bool(forKey: "mirrorSystemDock") }
+    var dockVisible: Bool { slidingPanel?.anchor === dockEdge && slidingPanel?.isVisible == true }
     var buttons: [ShelfButton] = []
     var extras: [Extra] = []
     var scanTime = Date.distantPast
@@ -59,7 +64,64 @@ final class Tray: NSObject {
         surface = view
         apple.target = self; apple.action = #selector(showApple)
         view.addSubview(apple)
+        dockEdge.title = ""
+        dockEdge.isBordered = false
+        dockEdge.setAccessibilityLabel("Показать Dock")
+        dockEdge.target = self
+        dockEdge.action = #selector(showDock)
+        dockEdge.entered = { [weak self] in self?.showDock() }
+        view.addSubview(dockEdge)
     }
+    func configureDock(enabled: Bool) {
+        guard !enabled || AXIsProcessTrusted() else {
+            owner.requestWindowAccess()
+            return
+        }
+        guard SystemDockVisibility.apply(hidden: enabled, defaults: owner.defaults) else {
+            owner.notify("Не удалось изменить настройки системного Dock.")
+            return
+        }
+        owner.defaults.set(enabled, forKey: "mirrorSystemDock")
+        dockEdge.isHidden = !enabled
+        if enabled { dockMirror.refresh() }
+        else if dockVisible { slidingPanel?.dismiss() }
+    }
+
+    @objc private func showDock() {
+        guard dockEnabled, !dockVisible, let shelf = dockEdge.window, let screen = shelf.screen else { return }
+        dockMirror.refresh()
+        guard !dockMirror.entries.isEmpty else {
+            dockMirror.onFirstEntries = { [weak self] in
+                guard let self, let window = self.dockEdge.window,
+                      window.convertToScreen(self.dockEdge.convert(self.dockEdge.bounds, to: nil))
+                        .contains(NSEvent.mouseLocation) else { return }
+                self.showDock()
+            }
+            return
+        }
+        slidingPanel?.dismiss()
+        popover?.performClose(nil)
+        owner.preview.hide()
+        let width = min(screen.visibleFrame.width - 16, DockRow.width(for: dockMirror.entries))
+        let row = DockRow(mirror: dockMirror, availableWidth: width) { [weak self] entry in
+            self?.slidingPanel?.dismiss()
+            entry.open()
+        }
+        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: NSHostingView(rootView: row),
+                                     above: dockEdge, in: shelf, screen: screen)
+        slidingPanel = panel
+        panel.showPanel(takingKey: false)
+        dockMouseTimer?.invalidate()
+        var lastInside = Date()
+        dockMouseTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak panel, weak shelf] timer in
+            guard let panel, let shelf, panel.isVisible, !panel.isClosing else { timer.invalidate(); return }
+            let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
+                                  height: panel.frame.maxY - shelf.frame.minY)
+            if corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
+            else if Date().timeIntervalSince(lastInside) > 0.28 { panel.dismiss(); timer.invalidate() }
+        }
+    }
+
     func openSettings(_ pane:String) {
         if let url = URL(string:"x-apple.systempreferences:"+pane) { owner.ws.open(url) }
     }
@@ -233,6 +295,10 @@ final class Tray: NSObject {
         if actions.indices.contains(b.tag) { actions[b.tag](b) }
     }
     func layout(_ width:CGFloat) -> CGFloat {
+        let edgeWidth = min(width * 0.45, 440)
+        dockEdge.frame = NSRect(x: (width - edgeWidth) / 2, y: 0, width: edgeWidth, height: 3)
+        dockEdge.isHidden = !dockEnabled
+        if dockEnabled && (dockVisible || dockMirror.entries.isEmpty) { dockMirror.refresh() }
         apple.frame = NSRect(x:1,y:3,width:44,height:44)
         scan()
         var controls: [Control] = []

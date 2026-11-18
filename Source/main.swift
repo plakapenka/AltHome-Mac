@@ -348,6 +348,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         updateDesktopLabel(false)
         glass.addSubview(desktopButton)
         tray.install(glass)
+        if !CommandLine.arguments.contains("--ui-check") {
+            if tray.dockEnabled && AXIsProcessTrusted() { tray.configureDock(enabled: true) }
+            else { tray.configureDock(enabled: false) }
+        }
         timeFormatter.dateFormat = "HH:mm"
         dateFormatter.dateFormat = "dd.MM.yyyy"
         let nc = ws.notificationCenter
@@ -426,6 +430,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+    func applicationWillTerminate(_ notification: Notification) {
+        if !CommandLine.arguments.contains("--ui-check") {
+            _ = SystemDockVisibility.apply(hidden: false, defaults: defaults)
+        }
+    }
+
     func liveApps() -> [NSRunningApplication] {
         ws.runningApplications.filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.bundleURL != nil && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
     }
@@ -554,7 +564,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
-                if hovering { self.preview.show(for:tile, task:task, frame:windowRect) }
+                if hovering && !self.tray.dockVisible { self.preview.show(for:tile, task:task, frame:windowRect) }
                 else if self.preview.anchor === tile { self.preview.hide() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
@@ -710,6 +720,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
             self.render()
         }
         m.items.last?.state = showsDate ? .on : .off
+        add(m,"Dock над панелью", symbol: "dock.rectangle") {
+            self.tray.configureDock(enabled: !self.tray.dockEnabled)
+            self.render()
+        }
+        m.items.last?.state = tray.dockEnabled ? .on : .off
         if !AXIsProcessTrusted() {
             add(m,"Разрешить доступ к окнам…", symbol: "accessibility") {
                 self.requestWindowAccess()

@@ -85,7 +85,7 @@ final class SlidingShelfPanel: NSPanel {
         card.setFrameSize(resized.size)
     }
 
-    func showPanel() {
+    func showPanel(takingKey: Bool = true) {
         guard let anchor, let shelf = anchor.window else { return }
         let wasVisible = isVisible
         isClosing = false
@@ -95,7 +95,7 @@ final class SlidingShelfPanel: NSPanel {
             card.alphaValue = 0
             if parent == nil { shelf.addChildWindow(self, ordered:.above) }
         }
-        makeKeyAndOrderFront(nil)
+        if takingKey { makeKeyAndOrderFront(nil) } else { orderFrontRegardless() }
         card.layoutSubtreeIfNeeded()
         onShow?(self)
         outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
