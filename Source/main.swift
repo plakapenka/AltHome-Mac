@@ -329,6 +329,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let scroll = NSScrollView()
     let desktopButton = DesktopButton(frame:.zero)
     let desktop = ShowDesktop()
+    let menuBarEdge = MenuBarEdge()
     let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
     let preview = WindowPreview()
@@ -477,6 +478,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        menuBarEdge.stop()
         if !CommandLine.arguments.contains("--ui-check") {
             _ = SystemDockVisibility.apply(hidden: false, defaults: defaults)
         }
@@ -490,7 +492,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         if !AXIsProcessTrusted() { snapshots.removeAll() }
         render()
         guard AXIsProcessTrusted(), !querying else { return }
-        if zoomMonitor == nil && !CommandLine.arguments.contains("--ui-check") { monitorTitleBarZoom() }
+        if !CommandLine.arguments.contains("--ui-check") {
+            if zoomMonitor == nil { monitorTitleBarZoom() }
+            if defaults.bool(forKey: "blockMenuBarHover") { _ = menuBarEdge.start() }
+        }
         querying = true
         let apps = liveApps()
         DispatchQueue.global(qos:.userInitiated).async {

@@ -9,6 +9,7 @@ private enum SettingsPage: String, CaseIterable {
 private struct ShelfSettings: View {
     unowned let owner: Delegate
     @State private var page: SettingsPage? = .general
+    @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("dockMode") private var dockMode = DockMode.system
     @AppStorage("dockPinned") private var dockPinned = false
@@ -75,6 +76,19 @@ private struct ShelfSettings: View {
                         Section {
                             Toggle("Показывать дату", isOn: $showsDate)
                                 .onChange(of: showsDate) { _ in owner.render() }
+                            Toggle("Блокировать строку меню при наведении", isOn: Binding(get: { blockMenuBarHover }, set: { enabled in
+                                if enabled {
+                                    guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
+                                    guard owner.menuBarEdge.start() else {
+                                        owner.notify("Не удалось включить блокировку верхнего края. Проверьте «Универсальный доступ» для TaskShelf.")
+                                        return
+                                    }
+                                } else {
+                                    owner.menuBarEdge.stop()
+                                }
+                                blockMenuBarHover = enabled
+                            }))
+                            .help("Для скрытой строки меню. В настройках macOS выберите автоскрытие «Всегда».")
                             Toggle("Запускать при входе", isOn: Binding(get: { login == .enabled }, set: { enabled in
                                 let service = SMAppService.mainApp
                                 do {
