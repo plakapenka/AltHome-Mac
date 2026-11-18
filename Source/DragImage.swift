@@ -6,11 +6,16 @@ final class DragImage {
     private weak var source: NSView?
     private let grab: NSPoint
 
-    init?(source: NSView, down: NSPoint) {
-        guard let window = source.window, let bitmap = source.bitmapImageRepForCachingDisplay(in: source.bounds) else { return nil }
-        source.cacheDisplay(in: source.bounds, to: bitmap)
-        let image = NSImage(size: source.bounds.size)
-        image.addRepresentation(bitmap)
+    init?(source: NSView, down: NSPoint, image supplied: NSImage? = nil) {
+        guard let window = source.window else { return nil }
+        let image: NSImage
+        if let supplied { image = supplied }
+        else {
+            guard let bitmap = source.bitmapImageRepForCachingDisplay(in: source.bounds) else { return nil }
+            source.cacheDisplay(in: source.bounds, to: bitmap)
+            image = NSImage(size: source.bounds.size)
+            image.addRepresentation(bitmap)
+        }
         let rect = window.convertToScreen(source.convert(source.bounds, to: nil))
         grab = NSPoint(x: down.x - rect.minX, y: down.y - rect.minY)
         self.source = source

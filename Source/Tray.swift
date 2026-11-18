@@ -50,14 +50,16 @@ final class Tray: NSObject {
     private lazy var dockMirror = DockMirror(defaults: owner.defaults)
     private var dockMouseTimer: Timer?
     var dockEnabled: Bool { owner.defaults.bool(forKey: "mirrorSystemDock") }
+    private weak var dockStrip: DockStrip?
     private var dockPanel: SlidingShelfPanel?
     private var dockScreenWidth: CGFloat = 0
     var dockPinned: Bool { owner.defaults.bool(forKey: "dockPinned") }
     var dockVisible: Bool { dockPanel?.isVisible == true && dockPanel?.isClosing == false }
-    var pinnedDockTop: CGFloat? { dockEnabled && dockPinned && dockVisible ? dockPanel?.frame.maxY : nil }
+    var pinnedDockTop: CGFloat? { dockEnabled && dockPinned && dockVisible ? dockStrip.map { owner.bar.frame.maxY + 6 + $0.restingHeight } : nil }
 
     private func hideDock() {
         dockMouseTimer?.invalidate()
+        dockStrip?.stop()
         dockPanel?.dismiss()
         dockPanel = nil
     }
@@ -122,23 +124,22 @@ final class Tray: NSObject {
         owner.preview.hide()
         dockScreenWidth = screen.visibleFrame.width
         weak var presented: SlidingShelfPanel?
-        let row = DockRow(mirror: dockMirror, availableWidth: dockScreenWidth - 16) { [weak self] entry in
+        let card = DockStrip(mirror: dockMirror, defaults: owner.defaults, available: dockScreenWidth - 16) { [weak self] entry in
             if self?.dockPinned == false { self?.hideDock() }
             entry.open()
         }
-        let card = NSHostingView(rootView: row.onGeometryChange(for: NSSize.self) { $0.size } action: { size in
-            presented?.fitDock(to: size)
-        })
+        card.resized = { size in presented?.fitDock(to: size) }
+        dockStrip = card
         let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, above: dockEdge, in: shelf, screen: screen,
-                                      cornerRadius: DockRow.cornerRadius)
+                                      cornerRadius: 0)
         presented = panel
         dockPanel = panel
         panel.showPanel(takingKey: false, dismissOnOutsideClick: !dockPinned)
         dockMouseTimer?.invalidate()
         var lastInside = Date()
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self, weak panel, weak shelf] timer in
-            guard let self, let panel, let shelf, panel.isVisible, !panel.isClosing else { timer.invalidate(); return }
-            self.dockMirror.samplePointer(in: panel)
+        card.startClock()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self, weak panel, weak shelf, weak card] timer in
+            guard let self, let panel, let shelf, panel.isVisible, !panel.isClosing else { card?.stop(); timer.invalidate(); return }
             guard !self.dockPinned else { return }
             let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
                                   height: panel.frame.maxY - shelf.frame.minY)
