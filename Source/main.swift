@@ -244,6 +244,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
     var zoomMonitor: CFMachPort?
     var titleBarClick: TitleBarClick?
+    var chatTitleDrag: ChatTitleDrag?
     var timer: Timer?
     let fmt = DateFormatter()
     var geometry: NSRect = .zero
