@@ -565,7 +565,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.previewHover = { [weak self, weak tile] hovering in
                 guard let self, let tile else { return }
-                if hovering && !self.tray.dockVisible { self.preview.show(for:tile, task:task, frame:windowRect) }
+                if hovering && (!self.tray.dockVisible || self.tray.dockPinned) { self.preview.show(for:tile, task:task, frame:windowRect) }
                 else if self.preview.anchor === tile { self.preview.hide() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }

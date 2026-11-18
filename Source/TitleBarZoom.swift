@@ -29,7 +29,7 @@ extension Delegate {
     func usableFrame(on screen: NSScreen) -> CGRect {
         var frame = screen.visibleFrame
         if frame.intersects(bar.frame) {
-            let bottom = min(frame.maxY, bar.frame.maxY + 2)
+            let bottom = min(frame.maxY, (tray.pinnedDockTop ?? bar.frame.maxY) + 2)
             frame.size.height = frame.maxY - bottom
             frame.origin.y = bottom
         }

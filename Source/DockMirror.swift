@@ -102,7 +102,7 @@ struct DockRow: View {
                     }
                 }
             }.padding(.horizontal, 8).padding(.vertical, 5)
-        }.frame(width: availableWidth, height: 62).background(.regularMaterial)
+        }.frame(width: min(availableWidth, Self.width(for: mirror.entries)), height: 62).background(.regularMaterial)
     }
 }
 

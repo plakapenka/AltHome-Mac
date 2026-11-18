@@ -85,7 +85,19 @@ final class SlidingShelfPanel: NSPanel {
         card.setFrameSize(resized.size)
     }
 
-    func showPanel(takingKey: Bool = true) {
+    func fitDock(to size: NSSize) {
+        guard let anchor, let shelf = anchor.window, let screen = shelf.screen, size.width > 0 else { return }
+        let button = shelf.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let bounds = screen.visibleFrame
+        let x = min(max(bounds.minX + 8, button.midX - size.width / 2), bounds.maxX - size.width - 8)
+        let target = NSRect(x: x, y: shelf.frame.maxY + 6, width: size.width, height: size.height)
+        if frame != target {
+            setFrame(target, display: true)
+            card.setFrameSize(size)
+        }
+    }
+
+    func showPanel(takingKey: Bool = true, dismissOnOutsideClick: Bool = true) {
         guard let anchor, let shelf = anchor.window else { return }
         let wasVisible = isVisible
         isClosing = false
@@ -98,7 +110,9 @@ final class SlidingShelfPanel: NSPanel {
         if takingKey { makeKeyAndOrderFront(nil) } else { orderFrontRegardless() }
         card.layoutSubtreeIfNeeded()
         onShow?(self)
-        outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
+        if dismissOnOutsideClick {
+            outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
+        }
         animate(open:true)
     }
 

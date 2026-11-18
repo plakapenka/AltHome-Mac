@@ -11,6 +11,7 @@ private struct ShelfSettings: View {
     @State private var page: SettingsPage? = .general
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("mirrorSystemDock") private var mirror = false
+    @AppStorage("dockPinned") private var dockPinned = false
     @State private var login = SMAppService.mainApp.status
     @State private var windowAccess = AXIsProcessTrusted()
     @State private var previewAccess = CGPreflightScreenCaptureAccess()
@@ -36,6 +37,10 @@ private struct ShelfSettings: View {
                             owner.tray.configureDock(enabled: $0)
                             owner.render()
                         }))
+                        Picker("Отображение", selection: Binding(get: { dockPinned }, set: { owner.tray.setDockPinned($0) })) {
+                            Text("Автоматически скрывать").tag(false)
+                            Text("Всегда показывать").tag(true)
+                        }.pickerStyle(.radioGroup).disabled(!mirror)
                     } else {
                         Section {
                             Toggle("Показывать дату", isOn: $showsDate)
