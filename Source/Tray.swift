@@ -42,7 +42,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
     return result
 }
 
-final class Tray: NSObject, NSPopoverDelegate {
+final class Tray: NSObject {
     unowned let owner: Delegate
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
     let apple = StartButton(frame:.zero)
@@ -53,7 +53,6 @@ final class Tray: NSObject, NSPopoverDelegate {
     var surface: NSView!
     private var popover: NSPopover?
     private weak var popoverAnchor: NSButton?
-    private let popoverClicks = OutsideClickMonitor()
     private var slidingPanel: SlidingShelfPanel?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
@@ -192,33 +191,23 @@ final class Tray: NSObject, NSPopoverDelegate {
         popover?.performClose(nil)
         return wasOpen
     }
-    func popoverDidShow(_ notification: Notification) {
-        guard let panel = notification.object as? NSPopover,
-              let window = panel.contentViewController?.view.window, let anchor = popoverAnchor else { return }
-        popoverClicks.start(window:window,anchor:anchor) { [weak panel] in panel?.performClose(nil) }
-    }
-
-    func popoverWillClose(_ notification: Notification) { popoverClicks.stop() }
-
-    private func present(_ controller:NSViewController, above anchor:NSButton, size:NSSize? = nil,
-                         dismissOnOutsideClick:Bool = false) {
-        let panel = NSPopover()
-        panel.animates = false
-        panel.behavior = dismissOnOutsideClick ? .applicationDefined : .transient
-        if dismissOnOutsideClick { panel.delegate = self }
-        panel.contentViewController = controller
-        if let size { panel.contentSize = size }
-        popover = panel
-        popoverAnchor = anchor
-        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
-    }
     private func showControls(_ page:TrayPage, above anchor:NSButton) {
-        if dismissPopover(for:anchor) { return }
+        if toggleVisiblePanel(above:anchor) { return }
+        guard let shelf = anchor.window, let screen = shelf.screen else { return }
+        weak var presented: SlidingShelfPanel?
         let controls = TrayControls(initialPage:page) { [weak self] pane in
-            self?.popover?.performClose(nil)
+            presented?.dismiss()
             self?.openSettings(pane)
         }
-        present(NSHostingController(rootView:controls),above:anchor,dismissOnOutsideClick:true)
+        let card = NSHostingView(rootView:controls
+            .background(Color(nsColor:.windowBackgroundColor))
+            .onGeometryChange(for:NSSize.self) { $0.size } action: { size in
+                presented?.fitContent(to:size)
+            })
+        let panel = SlidingShelfPanel(title:page.rawValue,card:card,above:anchor,in:shelf,screen:screen)
+        presented = panel
+        slidingPanel = panel
+        panel.showPanel()
     }
     private func showApplicationGrid(_ entries: [Extra], above anchor: NSButton) {
         if dismissPopover(for:anchor) { return }
@@ -228,7 +217,14 @@ final class Tray: NSObject, NSPopoverDelegate {
             self.popover?.performClose(nil)
             if !entry.app.isTerminated { self.showExtra(entry,above:anchor) }
         }
-        present(NSHostingController(rootView:grid),above:anchor,size:grid.size)
+        let panel = NSPopover()
+        panel.animates = false
+        panel.behavior = .transient
+        panel.contentViewController = NSHostingController(rootView:grid)
+        panel.contentSize = grid.size
+        popover = panel
+        popoverAnchor = anchor
+        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
     }
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []

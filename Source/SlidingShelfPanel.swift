@@ -75,6 +75,16 @@ final class SlidingShelfPanel: NSPanel {
         viewport.addSubview(card)
     }
 
+    // Wireless tabs, devices and network forms can change height while the panel is open.
+    func fitContent(to size: NSSize) {
+        let height = ceil(size.height)
+        guard height > 0, height != frame.height else { return }
+        var resized = frame
+        resized.size.height = height
+        setFrame(resized,display:true)
+        card.setFrameSize(resized.size)
+    }
+
     func showPanel() {
         guard let anchor, let shelf = anchor.window else { return }
         let wasVisible = isVisible
