@@ -123,32 +123,31 @@ struct StartMenu: View {
                     }
                 }.frame(maxWidth:.infinity)
                 Divider()
-                VStack(alignment:.leading,spacing:8) {
-                    HStack {
-                        Text("Закреплённые").font(.headline)
-                        Spacer()
-                        Button(action:browse) { Image(systemName:"plus").frame(width:26,height:26) }
-                            .buttonStyle(.plain).help("Добавить программу…").accessibilityLabel("Добавить программу…")
-                    }.frame(height:26)
-                    if library.pins.isEmpty {
-                        Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
-                            .font(.callout).foregroundStyle(.secondary).padding(.top,8)
-                    }
+                GeometryReader { area in
                     ScrollView {
-                        LazyVGrid(columns:[GridItem(.adaptive(minimum:72),spacing:4)],spacing:4) {
-                            ForEach(library.pins,id:\.key) { item in
-                                Button { launch(item) } label: {
-                                    VStack(spacing:5) {
-                                        icon(item,32)
-                                        Text(item.name).font(.caption).lineLimit(2).multilineTextAlignment(.center)
-                                    }.padding(5).frame(maxWidth:.infinity,minHeight:72,alignment:.top)
-                                        .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "pin"+item.key ? 0.09 : 0)))
-                                        .contentShape(Rectangle())
-                                }.buttonStyle(.plain).accessibilityLabel(item.name).help(item.name)
-                                 .onHover { inside in updateHover("pin"+item.key, inside) }
-                                 .contextMenu { Button("Открепить") { library.setPinned(item,false) } }
+                        VStack(alignment:.leading,spacing:0) {
+                            if library.pins.isEmpty {
+                                Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
+                                    .font(.callout).foregroundStyle(.secondary).padding(.top,8)
                             }
-                        }
+                            LazyVGrid(columns:[GridItem(.adaptive(minimum:72),spacing:4)],spacing:4) {
+                                ForEach(library.pins,id:\.key) { item in
+                                    Button { launch(item) } label: {
+                                        VStack(spacing:5) {
+                                            icon(item,32)
+                                            Text(item.name).font(.caption).lineLimit(2).multilineTextAlignment(.center)
+                                        }.padding(5).frame(maxWidth:.infinity,minHeight:72,alignment:.top)
+                                            .background(RoundedRectangle(cornerRadius:6).fill(Color.primary.opacity(hover == "pin"+item.key ? 0.09 : 0)))
+                                            .contentShape(Rectangle())
+                                    }.buttonStyle(.plain).accessibilityLabel(item.name).help(item.name)
+                                     .onHover { inside in updateHover("pin"+item.key, inside) }
+                                     .contextMenu { Button("Открепить") { library.setPinned(item,false) } }
+                                }
+                            }
+                            Color.clear.frame(maxWidth:.infinity,minHeight:12,maxHeight:.infinity)
+                                .contentShape(Rectangle())
+                                .contextMenu { Button("Добавить программу…", action:browse) }
+                        }.frame(minHeight:area.size.height,alignment:.topLeading)
                     }
                 }.frame(maxWidth:.infinity)
             }.padding(16).frame(maxHeight:.infinity)
