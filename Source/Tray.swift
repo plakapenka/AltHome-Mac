@@ -195,7 +195,8 @@ final class Tray: NSObject {
         if toggleVisiblePanel(above:anchor) { return }
         guard let shelf = anchor.window, let screen = shelf.screen else { return }
         weak var presented: SlidingShelfPanel?
-        let controls = TrayControls(initialPage:page) { [weak self] pane in
+        let display = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
+        let controls = TrayControls(display:display, initialPage:page) { [weak self] pane in
             presented?.dismiss()
             self?.openSettings(pane)
         }

@@ -310,6 +310,7 @@ private struct SoundControls: View {
 }
 
 struct TrayControls: View {
+    let display: CGDirectDisplayID
     let initialPage: TrayPage
     @State private var wirelessPage: TrayPage = .wifi
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
@@ -340,7 +341,7 @@ struct TrayControls: View {
                 case .wifi: WiFiControls()
                 case .sound: SoundControls()
                 case .bluetooth: BluetoothControls()
-                case .battery: BatteryControls()
+                case .battery: BatteryControls(display: display)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)

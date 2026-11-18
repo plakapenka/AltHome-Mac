@@ -66,6 +66,7 @@ final class LowPowerControl: ObservableObject {
 }
 
 struct BatteryControls: View {
+    let display: CGDirectDisplayID
     @ObservedObject private var control = LowPowerControl.shared
     @State private var status = BatteryStatus.current()
     @State private var energySaving = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -87,12 +88,20 @@ struct BatteryControls: View {
                 }
                 ProgressView(value: status.fraction).tint(energySaving ? .yellow : .green)
                 Divider()
-                Toggle(isOn: Binding(get: { energySaving }, set: { control.set($0, onAC: status.onACPower) })) {
+                BrightnessControl(display: display)
+                Divider()
+                HStack {
                     Label("Энергосбережение", systemImage: "leaf")
+                    Spacer()
+                    Toggle("Энергосбережение", isOn: Binding(
+                        get: { energySaving },
+                        set: { control.set($0, onAC: status.onACPower) }
+                    ))
+                    .labelsHidden().accessibilityLabel("Энергосбережение")
+                    .toggleStyle(.switch).tint(.green)
+                    .environment(\.controlActiveState, .active)
+                    .disabled(control.changing)
                 }
-                .toggleStyle(.switch).tint(.green)
-                .environment(\.controlActiveState, .active)
-                .disabled(control.changing)
                 if let message = control.message {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
