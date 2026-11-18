@@ -221,7 +221,10 @@ final class Tile: ShelfButton {
             dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint))
         }
         dragging = true
-        if let window { dragImage?.follow(window.convertPoint(toScreen: point)) }
+        if let window {
+            let visible = window.convertToScreen(strip.convert(strip.visibleRect, to: nil))
+            dragImage?.follow(window.convertPoint(toScreen: point), minimumX: visible.minX)
+        }
         _ = strip.autoscroll(with: event)
         let local = strip.convert(point, from: nil)
         reorder?(local.x)
@@ -534,7 +537,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
         desktopButton.frame = NSRect(x:width-desktopWidth, y:0, width:desktopWidth, height:frame.height)
         updateClock(at:Date(), rightEdge:desktopButton.frame.minX-3)
         let trayLeft = tray.layout(width)
-        scroll.frame = NSRect(x:46,y:3,width:max(1,trayLeft-49),height:44)
+        let tasksLeft = tray.apple.frame.maxX + 4
+        scroll.frame = NSRect(x: tasksLeft, y: 3, width: max(1, trayLeft - tasksLeft - 3), height: 44)
         let apps = liveApps()
         let pids = Set(apps.map { $0.processIdentifier })
         remembered = remembered.filter { pids.contains($0.key) }

@@ -35,8 +35,8 @@ final class DragImage {
         source.alphaValue = 0
         panel.orderFrontRegardless()
     }
-    func follow(_ point: NSPoint) {
-        panel.setFrameOrigin(NSPoint(x: point.x - grab.x, y: point.y - grab.y))
+    func follow(_ point: NSPoint, minimumX: CGFloat = -.infinity) {
+        panel.setFrameOrigin(NSPoint(x: max(minimumX, point.x - grab.x), y: point.y - grab.y))
     }
     func finish() {
         guard let source, let window = source.window, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {

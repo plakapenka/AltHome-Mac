@@ -357,7 +357,7 @@ final class Tray: NSObject {
             if dockPinned && !dockVisible { showDock() }
             if dockVisible || dockMirror.entries.isEmpty { dockMirror.refresh() }
         }
-        apple.frame = NSRect(x:1,y:3,width:44,height:44)
+        apple.frame = NSRect(x: 4, y: 2, width: 52, height: 46)
         scan()
         var controls: [Control] = []
         let wifi = CWWiFiClient.shared().interface()
