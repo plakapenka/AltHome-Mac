@@ -3,6 +3,7 @@ import AppKit
 final class DockNameTag: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let maskShape = CAShapeLayer()
+    private var lastAnchor: NSRect?
     private var lastTip: CGFloat = -1
 
     init() {
@@ -31,7 +32,9 @@ final class DockNameTag: NSPanel {
     }
 
     func show(_ name: String, above anchor: NSRect, in dock: NSWindow) {
+        if lastAnchor == anchor, parent === dock, label.stringValue == name, isVisible { return }
         guard let screen = dock.screen else { hide(); return }
+        lastAnchor = anchor
         if label.stringValue != name { label.stringValue = name }
         let visible = screen.visibleFrame
         let width = min(ceil(label.intrinsicContentSize.width) + 22, 380, visible.width - 12)
@@ -66,6 +69,7 @@ final class DockNameTag: NSPanel {
 
     func hide() {
         guard parent != nil || isVisible else { return }
+        lastAnchor = nil
         parent?.removeChildWindow(self)
         orderOut(nil)
     }
