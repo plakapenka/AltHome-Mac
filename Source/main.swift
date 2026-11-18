@@ -567,7 +567,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
         } else {
             menu.addItem(.separator())
-            add(menu,"Закрыть окно") { self.requestWindowAccess() }
+            let close = menu.addItem(withTitle:"Закрыть окно",action:nil,keyEquivalent:"")
+            close.isEnabled = false
+            close.toolTip = "Для закрытия окон включите TaskShelf в разделе «Универсальный доступ»."
+            add(menu,"Разрешить доступ к окнам…") { self.requestWindowAccess() }
         }
         return menu
     }
