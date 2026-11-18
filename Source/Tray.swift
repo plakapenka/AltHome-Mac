@@ -153,6 +153,8 @@ final class Tray {
     }
     private func family(_ e:Extra) -> String {
         if e.app.bundleIdentifier?.lowercased() == "com.apple.textinputmenuagent" { return "keyboard" }
+        if ["com.apple.Spotlight","com.apple.campo"].contains(e.app.bundleIdentifier)
+            || e.identifier.lowercased() == "com.apple.menuextra.spotlight" { return "spotlight" }
         if e.identifier == "com.apple.menuextra.clock" { return "clock" }
         if e.identifier == "com.apple.menuextra.controlcenter" { return "control" }
         let s = (e.identifier+" "+e.label).lowercased().replacingOccurrences(of:"‑",with:"-")
@@ -248,8 +250,8 @@ final class Tray {
             let step = min(4,(value+12)/25)*25
             system(.battery,"Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent")
         }
-        // Ignore native duplicates and the intentionally hidden Control Center.
-        let excludedFamilies: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
+        // Ignore native duplicates and the intentionally hidden Control Center and Spotlight.
+        let excludedFamilies: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock","spotlight"]
         let extraItems = extras.filter { !excludedFamilies.contains(family($0)) }
         let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
         if !applications.isEmpty {
@@ -258,9 +260,7 @@ final class Tray {
             }),at:0)
         }
         for extra in extraItems where extra.app.bundleIdentifier?.hasPrefix("com.apple.") == true {
-            let isSpotlight = ["com.apple.Spotlight","com.apple.campo"].contains(extra.app.bundleIdentifier)
-            controls.append((extra.label,isSpotlight ? "magnifyingglass" : nil,nil,
-                             isSpotlight ? nil : extra.app.icon,
+            controls.append((extra.label,nil,nil,extra.app.icon,
                              { button in self.showExtra(extra,above:button) }))
         }
         let slots = max(2,Int(width*0.32/32))
