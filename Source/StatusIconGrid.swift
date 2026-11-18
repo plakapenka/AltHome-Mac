@@ -27,7 +27,7 @@ struct StatusIconGrid: View {
                 } label: {
                     Group {
                         if let icon = entry.app.icon {
-                            Image(nsImage:icon).resizable().scaledToFit()
+                            Image(nsImage:icon).renderingMode(.original).resizable().scaledToFit()
                         } else {
                             Image(systemName:"app").resizable().scaledToFit()
                         }

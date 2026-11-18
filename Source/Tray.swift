@@ -258,7 +258,10 @@ final class Tray {
             }),at:0)
         }
         for extra in extraItems where extra.app.bundleIdentifier?.hasPrefix("com.apple.") == true {
-            controls.append((extra.label,nil,nil,extra.app.icon,{ button in self.showExtra(extra,above:button) }))
+            let isSpotlight = ["com.apple.Spotlight","com.apple.campo"].contains(extra.app.bundleIdentifier)
+            controls.append((extra.label,isSpotlight ? "magnifyingglass" : nil,nil,
+                             isSpotlight ? nil : extra.app.icon,
+                             { button in self.showExtra(extra,above:button) }))
         }
         let slots = max(2,Int(width*0.32/32))
         if controls.count > slots {
@@ -272,7 +275,7 @@ final class Tray {
         }
         actions = controls.map { $0.click }
         while buttons.count < controls.count {
-            let b = NSButton(); b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
+            let b = NSButton(); b.contentTintColor = .white; b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
             b.target = self; b.action = #selector(invoke(_:)); surface.addSubview(b); buttons.append(b)
         }
         while buttons.count > controls.count { buttons.removeLast().removeFromSuperview() }

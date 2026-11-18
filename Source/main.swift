@@ -270,6 +270,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         scroll.hasVerticalScroller = false
         scroll.documentView = strip
         glass.addSubview(scroll)
+        clockLabel.contentTintColor = .white
         clockLabel.isBordered = false
         clockLabel.target = tray
         clockLabel.action = #selector(Tray.showClock)
@@ -277,6 +278,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         clockLabel.font = .monospacedDigitSystemFont(ofSize:13,weight:.medium)
         clockLabel.alignment = .center
         glass.addSubview(clockLabel)
+        options.contentTintColor = .white
         options.title = ""
         options.isBordered = false
         options.image = NSImage(systemSymbolName:"ellipsis.circle",accessibilityDescription:"Меню панели")
