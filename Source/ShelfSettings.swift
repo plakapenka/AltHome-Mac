@@ -52,9 +52,9 @@ private struct ShelfSettings: View {
                             Section {
                                 LabeledContent("Размер значков") {
                                     Slider(value: Binding(get: { iconSize }, set: {
-                                        iconSize = $0
+                                        iconSize = $0.rounded()
                                         owner.tray.previewDock(.size)
-                                    }), in: 16...128, step: 1, onEditingChanged: { owner.tray.previewDock(.size, editing: $0) })
+                                    }), in: 16...128, onEditingChanged: { owner.tray.previewDock(.size, editing: $0) })
                                         .accessibilityLabel("Размер значков")
                                     Text("\(Int(iconSize)) пт").monospacedDigit().frame(width: 48, alignment: .trailing)
                                 }
