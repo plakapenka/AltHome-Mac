@@ -209,7 +209,7 @@ final class Tray {
     }
     private func showControls(_ page:TrayPage, above anchor:NSButton) {
         if dismissPopover(for:anchor) { return }
-        let controls = TrayControls(page:page) { [weak self] pane in
+        let controls = TrayControls(initialPage:page) { [weak self] pane in
             self?.popover?.performClose(nil)
             self?.openSettings(pane)
         }
@@ -244,7 +244,6 @@ final class Tray {
         }))
         system(.wifi,"Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi")
         system(.sound,"Звук","speaker.wave.2")
-        system(.bluetooth,"Bluetooth","antenna.radiowaves.left.and.right")
         if let value = charge() {
             let step = min(4,(value+12)/25)*25
             system(.battery,"Аккумулятор · "+String(value)+"%","battery."+String(step)+"percent")

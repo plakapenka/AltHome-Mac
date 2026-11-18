@@ -222,14 +222,25 @@ private struct SoundControls: View {
 }
 
 struct TrayControls: View {
-    let page: TrayPage
+    let initialPage: TrayPage
+    @State private var wirelessPage: TrayPage = .wifi
+    private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openSettings: (String)->Void
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
-            HStack {
-                Image(systemName:page.icon).foregroundStyle(Color.accentColor)
-                Text(page.rawValue).font(.headline)
-                Spacer()
+            if initialPage == .wifi {
+                Picker("Беспроводные подключения", selection: $wirelessPage) {
+                    Text(TrayPage.wifi.rawValue).tag(TrayPage.wifi)
+                    Text(TrayPage.bluetooth.rawValue).tag(TrayPage.bluetooth)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } else {
+                HStack {
+                    Image(systemName:page.icon).foregroundStyle(Color.accentColor)
+                    Text(page.rawValue).font(.headline)
+                    Spacer()
+                }
             }
             switch page {
             case .wifi: WiFiControls()
