@@ -202,7 +202,12 @@ final class Tray: NSObject {
             self?.chooseStartPin()
         }, settings:{ [weak self] in
             self?.slidingPanel?.dismiss()
-            self?.owner.showSettings()
+            guard let self else { return }
+            guard let url = self.owner.ws.urlForApplication(withBundleIdentifier: "com.apple.systempreferences") else {
+                self.owner.notify("Не удалось найти системные настройки macOS.")
+                return
+            }
+            self.owner.launch(Item(url))
         }, power:{ [weak self] action in
             self?.slidingPanel?.dismiss()
             do { try action.perform() } catch { self?.owner.notify(error.localizedDescription) }

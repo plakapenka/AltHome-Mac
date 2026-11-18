@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import Carbon
+import OpenDirectory
 
 final class StartLibrary: ObservableObject {
     @Published private(set) var apps: [Item] = []
@@ -69,6 +70,51 @@ enum StartPowerAction {
     }
 }
 
+private struct StartUserLabel: View {
+    private static let name = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+    private static let picture: NSImage? = {
+        guard let node = try? ODNode(session: ODSession.default(), type: UInt32(kODNodeTypeLocalNodes)),
+              let user = try? node.record(withRecordType: kODRecordTypeUsers, name: NSUserName(),
+                                          attributes: [kODAttributeTypeJPEGPhoto, kODAttributeTypePicture]) else { return nil }
+        if let photos = try? user.values(forAttribute: kODAttributeTypeJPEGPhoto) as? [Data],
+           let data = photos.first, let image = NSImage(data: data) { return image }
+        if let paths = try? user.values(forAttribute: kODAttributeTypePicture) as? [String],
+           let path = paths.first { return NSImage(contentsOfFile: path) }
+        return nil
+    }()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let picture = Self.picture {
+                    Image(nsImage: picture).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Circle().fill(Color.primary.opacity(0.12))
+                        Text(String(Self.name.prefix(1))).font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            .frame(width: 26, height: 26).clipShape(Circle()).accessibilityHidden(true)
+            Text(Self.name).font(.callout.weight(.medium)).lineLimit(1)
+        }
+    }
+}
+
+private struct StartFooterIcon: ViewModifier {
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        let outline = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        content.frame(width: 32, height: 30)
+            .background(outline.fill(Color.primary.opacity(hovered ? 0.09 : 0)))
+            .overlay(outline.strokeBorder(Color.primary.opacity(hovered ? 0.2 : 0), lineWidth: 1)
+                .allowsHitTesting(false))
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+    }
+}
+
 private struct PowerMenuButton: NSViewRepresentable {
     let power: (StartPowerAction) -> Void
 
@@ -98,6 +144,7 @@ private struct PowerMenuButton: NSViewRepresentable {
             .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
         let button = NSButton(image: image ?? NSImage(), target: context.coordinator, action: #selector(Coordinator.show(_:)))
         button.isBordered = false
+        button.contentTintColor = .labelColor
         button.toolTip = "Питание"
         button.setAccessibilityLabel("Питание")
         let menu = context.coordinator.menu
@@ -212,20 +259,21 @@ struct StartMenu: View {
                 }.frame(maxWidth:.infinity)
             }.padding(16).frame(maxHeight:.infinity)
             Divider()
-            HStack(spacing:14) {
-                Spacer()
+            HStack(spacing:8) {
+                StartUserLabel()
+                Spacer(minLength: 8)
                 Button(action: settings) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 16, weight: .medium))
-                        .frame(width: 30, height: 28)
-                        .background(MenuAppearance.selection(hover == "settings"))
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Настройки TaskShelf")
-                .help("Настройки TaskShelf")
-                .onHover { updateHover("settings", $0) }
-                PowerMenuButton(power: power).frame(width: 30, height: 28)
+                .modifier(StartFooterIcon())
+                .accessibilityLabel("Системные настройки")
+                .help("Системные настройки")
+                PowerMenuButton(power: power).modifier(StartFooterIcon())
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
          .background(Color(nsColor:.windowBackgroundColor))

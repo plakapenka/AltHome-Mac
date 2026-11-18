@@ -4,8 +4,8 @@
 <key>CFBundleName</key><string>TaskShelf</string>
 <key>CFBundleExecutable</key><string>TaskShelf</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.56</string>
-<key>CFBundleVersion</key><string>57</string>
+<key>CFBundleShortVersionString</key><string>1.57</string>
+<key>CFBundleVersion</key><string>58</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSAppleEventsUsageDescription</key><string>Через меню питания TaskShelf можно перевести Mac в режим сна или открыть системный диалог перезапуска и выключения.</string>
