@@ -76,7 +76,7 @@ private struct PowerMenuButton: NSViewRepresentable {
             let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
             let visible = screen.visibleFrame
             let size = menu.size
-            let x = max(visible.minX + 4, min(anchor.maxX - size.width, visible.maxX - size.width - 4))
+            let x = max(visible.minX + 4, min(anchor.minX, visible.maxX - size.width - 4))
             let top = min(visible.maxY - 4, anchor.maxY + 5 + size.height)
             let point = button.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: top)), from: nil)
             menu.popUp(positioning: nil, at: point, in: button)
@@ -95,10 +95,10 @@ private struct PowerMenuButton: NSViewRepresentable {
         button.toolTip = "Питание"
         button.setAccessibilityLabel("Питание")
         let menu = context.coordinator.menu
-        let restart = menu.addItem(withTitle: "Перезапуск…", action: #selector(Coordinator.restart), keyEquivalent: "")
+        let restart = menu.addItem(withTitle: "Перезапуск", action: #selector(Coordinator.restart), keyEquivalent: "")
         restart.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         restart.target = context.coordinator
-        let shutdown = menu.addItem(withTitle: "Выключение…", action: #selector(Coordinator.shutdown), keyEquivalent: "")
+        let shutdown = menu.addItem(withTitle: "Выключение", action: #selector(Coordinator.shutdown), keyEquivalent: "")
         shutdown.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
         shutdown.target = context.coordinator
         return button
