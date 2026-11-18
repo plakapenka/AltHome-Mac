@@ -2,17 +2,18 @@ import AppKit
 
 /// Quartz display coordinates have their origin at the top left of the main display.
 final class MenuBarEdge {
+    private static let clearance: CGFloat = 6
     private var displays: [CGRect] = []
     private var tap: CFMachPort?
     private var displayObserver: NSObjectProtocol?
 
     static func constrained(_ point: CGPoint, displays: [CGRect]) -> CGPoint? {
         guard let display = displays.first(where: { $0.contains(point) }),
-              point.y < display.minY + 3 else { return nil }
+              point.y < display.minY + clearance else { return nil }
         // Leave a shared edge open when another display is immediately above this one.
         let above = CGPoint(x: point.x, y: display.minY - 0.5)
         guard !displays.contains(where: { $0.contains(above) }) else { return nil }
-        return CGPoint(x: point.x, y: display.minY + 3)
+        return CGPoint(x: point.x, y: display.minY + clearance)
     }
 
     private func updateDisplays() {
@@ -32,12 +33,12 @@ final class MenuBarEdge {
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = edge.tap { CGEvent.tapEnable(tap: tap, enable: true) }
             } else if let point = MenuBarEdge.constrained(event.location, displays: edge.displays) {
-                CGWarpMouseCursorPosition(point)
                 event.location = point
             }
             return Unmanaged.passUnretained(event)
         }
-        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+        // Adjust the movement before session-level consumers can trigger menu bar reveal.
+        guard let port = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap,
                                            options: .defaultTap, eventsOfInterest: mask, callback: callback,
                                            userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
         updateDisplays()
