@@ -47,7 +47,7 @@ final class Tray: NSObject {
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
     let apple = StartButton(frame:.zero)
     private let dockEdge = DockEdge(frame: .zero)
-    private let dockMirror = DockMirror()
+    private lazy var dockMirror = DockMirror(defaults: owner.defaults)
     private var dockMouseTimer: Timer?
     var dockEnabled: Bool { owner.defaults.bool(forKey: "mirrorSystemDock") }
     private var dockPanel: SlidingShelfPanel?
@@ -137,11 +137,11 @@ final class Tray: NSObject {
         dockMouseTimer?.invalidate()
         guard !dockPinned else { return }
         var lastInside = Date()
-        dockMouseTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak panel, weak shelf] timer in
+        dockMouseTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak panel, weak shelf, weak dockMirror] timer in
             guard let panel, let shelf, panel.isVisible, !panel.isClosing else { timer.invalidate(); return }
             let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
                                   height: panel.frame.maxY - shelf.frame.minY)
-            if corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
+            if dockMirror?.dragging == true || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
             else if Date().timeIntervalSince(lastInside) > 0.28 { panel.dismiss(); timer.invalidate() }
         }
     }

@@ -2,6 +2,7 @@ import SwiftUI
 import ApplicationServices
 
 struct DockEntry: Equatable {
+    let key: String
     let element: AXUIElement
     let role: String
     let title: String
@@ -16,13 +17,19 @@ struct DockEntry: Equatable {
         let lists = attr(root, kAXChildrenAttribute) as? [AXUIElement] ?? []
         guard let list = lists.first(where: { attr($0, kAXRoleAttribute) as? String == kAXListRole }) else { return [] }
         let keys = [kAXSubroleAttribute, kAXTitleAttribute, kAXURLAttribute, "AXIsApplicationRunning"] as CFArray
+        var occurrences: [String: Int] = [:]
         return (attr(list, kAXChildrenAttribute) as? [AXUIElement] ?? []).compactMap { item in
             var result: CFArray?
             guard AXUIElementCopyMultipleAttributeValues(item, keys, [], &result) == .success,
                   let values = result as? [Any], values.count == 4, let role = values[0] as? String else { return nil }
             let title = values[1] as? String ?? ""
             guard !title.isEmpty || role == "AXSeparatorDockItem" else { return nil }
-            return DockEntry(element: item, role: role, title: title, url: values[2] as? URL,
+            let url = values[2] as? URL
+            let identity = role == "AXWindowDockItem" ? String(CFHash(item)) : (url?.absoluteString ?? title)
+            let base = role + "|" + identity
+            let occurrence = occurrences[base, default: 0]
+            occurrences[base] = occurrence + 1
+            return DockEntry(key: base + "|" + String(occurrence), element: item, role: role, title: title, url: url,
                              running: values[3] as? Bool == true)
         }
     }
@@ -57,6 +64,26 @@ final class DockMirror: ObservableObject {
     @Published private(set) var entries: [DockEntry] = []
     var onFirstEntries: (() -> Void)?
     private var reading = false
+    private let defaults: UserDefaults
+    private var order: [String]
+    var dragging = false
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        order = defaults.stringArray(forKey: "dockItemOrder") ?? []
+    }
+
+    func move(_ key: String, to target: Int) {
+        guard let index = entries.firstIndex(where: { $0.key == key }),
+              entries.indices.contains(target), index != target else { return }
+        var moved = entries
+        moved.insert(moved.remove(at: index), at: target)
+        let keys = moved.map(\.key)
+        order = rememberedOrder(keys, previous: order)
+        defaults.set(order.filter { !$0.hasPrefix("AXWindowDockItem|") }, forKey: "dockItemOrder")
+        entries = moved
+    }
+
     func refresh() {
         guard !reading else { return }
         reading = true
@@ -64,7 +91,9 @@ final class DockMirror: ObservableObject {
             let entries = DockEntry.read()
             DispatchQueue.main.async {
                 self.reading = false
-                if self.entries != entries { self.entries = entries }
+                let byKey = Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0) })
+                let sorted = arranged(entries.map(\.key), preferred: self.order).compactMap { byKey[$0] }
+                if self.entries != sorted { self.entries = sorted }
                 if !entries.isEmpty {
                     let ready = self.onFirstEntries
                     self.onFirstEntries = nil
@@ -82,6 +111,7 @@ struct DockRow: View {
     @AppStorage("dockIconSize") private var iconSize = DockSizing.systemSize
     @AppStorage("dockMagnifies") private var magnifies = true
     @AppStorage("dockZoom") private var zoom = 1.55
+    @State private var dragged: String?
     @State private var pointer: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let cornerRadius: CGFloat = 18
@@ -118,10 +148,15 @@ struct DockRow: View {
         }
         let contentWidth = margins + sizes.reduce(0, +) + CGFloat(count) * 2
         let width = min(availableWidth, contentWidth)
+        var leading: CGFloat = 8
+        let centers = sizes.map { size -> CGFloat in
+            let width = size == 0 ? 12 : size + 2
+            defer { leading += width }
+            return leading + width / 2
+        }
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .bottom, spacing: 0) {
-                ForEach(mirror.entries.indices, id: \.self) { i in
-                    let entry = mirror.entries[i]
+                ForEach(Array(mirror.entries.enumerated()), id: \.element.key) { i, entry in
                     let tileSize = sizes[i]
                     if entry.role == "AXSeparatorDockItem" {
                         Rectangle().fill(.primary.opacity(0.22))
@@ -137,11 +172,26 @@ struct DockRow: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(DockPressStyle()).help(entry.title).accessibilityLabel(entry.title)
+                        .opacity(dragged == entry.key ? 0.8 : 1)
+                        .highPriorityGesture(DragGesture(minimumDistance: 5, coordinateSpace: .named("Dock strip"))
+                            .onChanged { value in
+                                dragged = entry.key
+                                mirror.dragging = true
+                                let target = dragDestination(from: i, centers: centers, x: value.location.x)
+                                if target != i {
+                                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.17)) {
+                                        mirror.move(entry.key, to: target)
+                                    }
+                                }
+                            }
+                            .onEnded { _ in dragged = nil; mirror.dragging = false })
                     }
                 }
             }.padding(.horizontal, 8)
+                .coordinateSpace(name: "Dock strip")
                 .contentShape(Rectangle())
                 .onContinuousHover { phase in
+                    guard dragged == nil else { return }
                     switch phase {
                     case .active(let point):
                         if magnifies { pointer = point.x * naturalWidth / max(contentWidth, 1) }
@@ -151,6 +201,7 @@ struct DockRow: View {
         }
         .frame(width: width, height: (sizes.max() ?? side) + 14, alignment: .bottom)
         .background(plate)
+        .onDisappear { mirror.dragging = false }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: pointer != nil)
     }
 }
