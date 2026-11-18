@@ -692,12 +692,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
             bring(window,app)
         } else { launch(item) }
     }
-    func bring(_ window: AXUIElement, _ app: NSRunningApplication) {
-        if minimized(window) && !setMini(window,false) { notify("Не удалось восстановить окно."); return }
+    @discardableResult
+    func bring(_ window: AXUIElement, _ app: NSRunningApplication) -> Bool {
+        if minimized(window) && !setMini(window,false) { notify("Не удалось восстановить окно."); return false }
         app.unhide()
         app.activate(options:[])
         _ = AXUIElementPerformAction(window,kAXRaiseAction as CFString)
         remembered.removeValue(forKey: app.processIdentifier)
+        return true
     }
     func writeFrame(_ rect: CGRect, to w: AXUIElement) -> Bool {
         var pos = rect.origin, sz = rect.size
@@ -757,7 +759,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if let w = target ?? focused ?? (all.count == 1 ? all.first : nil) {
                 menu.addItem(.separator())
                 add(menu,"Закрыть окно", symbol: "xmark.rectangle") {
-                    self.closeWindow(w)
+                    self.closeWindow(w, app)
                 }
             }
         } else {
@@ -769,7 +771,41 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         return menu
     }
-    private func closeWindow(_ window: AXUIElement) {
+    private func closeWindow(_ window: AXUIElement, _ app: NSRunningApplication) {
+        guard app.bundleIdentifier == "com.tdesktop.Telegram" else {
+            pressCloseButton(of: window)
+            return
+        }
+        // Telegram Desktop can acknowledge AXPress without closing. Send its Close Window
+        // shortcut only after the selected window has been restored and focused.
+        guard bring(window, app) else { return }
+        Task { @MainActor in
+            let root = AXUIElementCreateApplication(app.processIdentifier)
+            for _ in 0..<10 {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard !app.isTerminated, attr(window, kAXRoleAttribute) != nil else { return }
+                if let focused = element(root, kAXFocusedWindowAttribute),
+                   CFEqual(focused, window), !minimized(window) {
+                    // ANSI W is virtual key 13. Deliver both events to Telegram itself.
+                    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: true),
+                          let up = CGEvent(keyboardEventSource: nil, virtualKey: 13, keyDown: false) else {
+                        notify("Не удалось отправить Telegram команду закрытия.")
+                        return
+                    }
+                    for event in [down, up] {
+                        event.flags = .maskCommand
+                        event.postToPid(app.processIdentifier)
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    refresh()
+                    return
+                }
+            }
+            notify("Не удалось выбрать окно Telegram для закрытия.")
+        }
+    }
+
+    private func pressCloseButton(of window: AXUIElement) {
         guard let button = element(window, kAXCloseButtonAttribute),
               AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
             notify("Не удалось закрыть выбранное окно.")

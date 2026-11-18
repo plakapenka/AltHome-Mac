@@ -131,7 +131,7 @@ final class WindowPreview {
         image.image = nil
     }
 
-    func show(for tile: Tile, task: TaskEntry, frame: @escaping (AXUIElement) -> CGRect?, close: @escaping (AXUIElement) -> Void) {
+    func show(for tile: Tile, task: TaskEntry, frame: @escaping (AXUIElement) -> CGRect?, close: @escaping (AXUIElement, NSRunningApplication) -> Void) {
         guard let app = task.app, anchor !== tile else { return }
         hide()
         anchor = tile
@@ -149,7 +149,7 @@ final class WindowPreview {
             message.isHidden = false
             if let window = task.entry?.window, let button = element(window, kAXCloseButtonAttribute),
                (attr(button, kAXEnabledAttribute) as? Bool) != false {
-                closeAction = { close(window) }
+                closeAction = { close(window, app) }
             }
             closeButton.isEnabled = closeAction != nil
             closeButton.toolTip = closeButton.isEnabled ? "Закрыть окно" : "Закрытие этого окна недоступно"
