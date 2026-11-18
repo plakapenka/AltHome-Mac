@@ -100,6 +100,7 @@ final class Tile: NSButton {
     let item: Item
     var press: (() -> Void)?
     var context: (() -> NSMenu)?
+    var previewHover: ((Bool) -> Void)?
     private let icon = NSImageView()
     private let caption = NSTextField(labelWithString:"")
     private let activeMark = NSView()
@@ -136,7 +137,14 @@ final class Tile: NSButton {
     required init?(coder: NSCoder) { fatalError() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
-    override func menu(for event: NSEvent) -> NSMenu? { context?() }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        previewHover?(false)
+        return context?()
+    }
+    override func mouseDown(with event: NSEvent) {
+        previewHover?(false)
+        super.mouseDown(with:event)
+    }
     @objc func clicked() { press?() }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -144,8 +152,8 @@ final class Tile: NSButton {
         let a = NSTrackingArea(rect:.zero,options:[.inVisibleRect,.activeAlways,.mouseEnteredAndExited],owner:self)
         addTrackingArea(a); area = a
     }
-    override func mouseEntered(with e: NSEvent) { hover = true; tint() }
-    override func mouseExited(with e: NSEvent) { hover = false; tint() }
+    override func mouseEntered(with e: NSEvent) { hover = true; tint(); previewHover?(true) }
+    override func mouseExited(with e: NSEvent) { hover = false; tint(); previewHover?(false) }
     func tint() {
         activeMark.isHidden = !selected
         let outlined = selected || hover
@@ -162,7 +170,7 @@ final class Tile: NSButton {
         selected = active; tint()
         let label = (text != nil && text != item.name) ? "\(item.name) — \(text!)" : item.name
         setAccessibilityLabel(label)
-        toolTip = label + (pinned ? " · закреплено" : "") + (running ? " · запущено" : "") + "\nПравый клик — меню"
+        toolTip = running ? nil : label + (pinned ? " · закреплено" : "") + (running ? " · запущено" : "") + "\nПравый клик — меню"
         setAccessibilityValue(active ? "Активно" : running ? "Запущено" : "Закреплено")
     }
 }
@@ -175,6 +183,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let clockLabel = NSTextField(labelWithString:"")
     let options = NSButton()
     lazy var tray = Tray(self)
+    let preview = WindowPreview()
     var pins: [Item] = []
     var tiles: [TileID:Tile] = [:]
     var snapshots: [pid_t:[WindowEntry]] = [:]
@@ -265,7 +274,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       a.frame.width == Tile.preferredWidth(for:first.title), a.frame.width < 116,
                       b.frame.width > a.frame.width, b.frame.width <= 204,
                       Tile.preferredWidth(for:second.title) == 204, !a.frame.intersects(b.frame),
-                      a.toolTip?.contains(first.title) == true, b.toolTip?.contains(second.title) == true
+                      a.accessibilityLabel()?.contains(first.title) == true, b.accessibilityLabel()?.contains(second.title) == true
                 else { exit(6) }
                 let oldOrder = self.layoutOrder
                 self.snapshots[pid] = [second,first]
@@ -340,7 +349,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         layoutOrder = tasks.map { $0.id }
         let keys = Set(layoutOrder)
-        for key in Array(tiles.keys) where !keys.contains(key) { tiles.removeValue(forKey:key)?.removeFromSuperview() }
+        for key in Array(tiles.keys) where !keys.contains(key) {
+            if let tile = tiles.removeValue(forKey:key) {
+                if preview.anchor === tile { preview.hide() }
+                tile.removeFromSuperview()
+            }
+        }
         var x: CGFloat = 0
         for task in tasks {
             let item = task.item
@@ -355,6 +369,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
                     } else { self.bring(entry.window,app) }
                 } else { self.toggle(item) }
                 self.refresh()
+            }
+            tile.previewHover = { [weak self, weak tile] hovering in
+                guard let self, let tile else { return }
+                if hovering { self.preview.show(for:tile, task:task, frame:self.windowRect) }
+                else if self.preview.anchor === tile { self.preview.hide() }
             }
             tile.context = { [weak self] in self?.menu(item,target:task.entry?.window,owner:task.app) ?? NSMenu() }
             let width = Tile.preferredWidth(for:task.caption)
@@ -502,6 +521,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
         if !AXIsProcessTrusted() {
             add(m,"Разрешить доступ к окнам…") {
                 self.requestWindowAccess()
+            }
+        }
+        if !CGPreflightScreenCaptureAccess() {
+            add(m,"Разрешить превью окон…") {
+                _ = CGRequestScreenCaptureAccess()
+                if !CGPreflightScreenCaptureAccess(), let url = URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    self.ws.open(url)
+                }
             }
         }
         let service = SMAppService.mainApp
