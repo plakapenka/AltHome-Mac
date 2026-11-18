@@ -67,13 +67,41 @@ extension Tray {
         _ = AXUIElementPerformAction(root,kAXCancelAction as CFString)
     }
 
-    func showExtra(_ entry: Extra, above button: NSButton) {
-        guard press(entry) else { return }
-        if let source = openStatusMenu(entry) {
-            let menu = copyItems(source,entry:entry,path:[])
-            if !menu.items.isEmpty && AXUIElementPerformAction(source,kAXCancelAction as CFString) == .success {
-                popUp(menu,above:button)
+    private func storedMenu(_ entry: Extra) -> AXUIElement? {
+        if let menu = submenu(of:entry.target) { return menu }
+        let root = AXUIElementCreateApplication(entry.app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root,0.2)
+        guard let bar = element(root,kAXExtrasMenuBarAttribute) else { return nil }
+        let items = attr(bar,kAXChildrenAttribute) as? [AXUIElement] ?? []
+        let match = items.first { item in
+            (!entry.identifier.isEmpty && attr(item,kAXIdentifierAttribute) as? String == entry.identifier)
+                || [kAXDescriptionAttribute,kAXTitleAttribute,kAXHelpAttribute].contains { attr(item,$0) as? String == entry.label }
+        }
+        return (match ?? (items.count == 1 ? items.first : nil)).flatMap { submenu(of:$0) }
+    }
+
+    func showApplicationList(_ entries: [Extra], above button: NSButton) {
+        let list = NSMenu()
+        for entry in entries.sorted(by:{ $0.label.localizedStandardCompare($1.label) == .orderedAscending }) {
+            let name = entry.app.localizedName ?? entry.label
+            owner.add(list,name) { self.press(entry) }
+            guard let item = list.items.last else { continue }
+            item.toolTip = entry.label
+            item.image = entry.app.icon?.copy() as? NSImage
+            item.image?.size = NSSize(width:18,height:18)
+            if let source = storedMenu(entry) {
+                let commands = copyItems(source,entry:entry,path:[])
+                if !commands.items.isEmpty { item.submenu = commands }
             }
         }
+        popUp(list,above:button)
+    }
+
+    func showExtra(_ entry: Extra, above button: NSButton) {
+        if let source = storedMenu(entry) {
+            let menu = copyItems(source,entry:entry,path:[])
+            if !menu.items.isEmpty { popUp(menu,above:button); return }
+        }
+        press(entry)
     }
 }

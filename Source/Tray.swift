@@ -239,7 +239,15 @@ final class Tray {
         }
         system(.control,"Пункт управления","switch.2")
         let represented: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock"]
-        for extra in extras where !represented.contains(family(extra)) {
+        let extraItems = extras.filter { !represented.contains(family($0)) }
+        let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
+        if !applications.isEmpty {
+            controls.insert(("Значки приложений","chevron.up",nil,nil,{ button in
+                self.popover?.performClose(nil)
+                self.showApplicationList(applications,above:button)
+            }),at:0)
+        }
+        for extra in extraItems where extra.app.bundleIdentifier?.hasPrefix("com.apple.") == true {
             controls.append((extra.label,nil,nil,extra.app.icon,{ button in self.showExtra(extra,above:button) }))
         }
         let slots = max(2,Int(width*0.32/32))
