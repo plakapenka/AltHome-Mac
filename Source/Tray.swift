@@ -7,12 +7,20 @@ private func sourceString(_ source: TISInputSource, _ key: CFString) -> String? 
     guard let p = TISGetInputSourceProperty(source,key) else { return nil }
     return Unmanaged<CFString>.fromOpaque(p).takeUnretainedValue() as String
 }
+private func inputLanguage(_ source: TISInputSource) -> String? {
+    guard let p = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages),
+          let languages = Unmanaged<CFArray>.fromOpaque(p).takeUnretainedValue() as? [String] else { return nil }
+    return languages.first?.components(separatedBy: "-").first
+}
 private func inputCode() -> String {
-    guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-          let p = TISGetInputSourceProperty(source,kTISPropertyInputSourceLanguages),
-          let langs = Unmanaged<CFArray>.fromOpaque(p).takeUnretainedValue() as? [String],
-          let first = langs.first else { return "⌨" }
-    return first.components(separatedBy:"-")[0].uppercased()
+    guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return "⌨" }
+    return inputLanguage(source)?.uppercased() ?? "⌨"
+}
+private func enabledKeyboards() -> [TISInputSource] {
+    let filter: [String: Any] = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String,
+                                 kTISPropertyInputSourceIsSelectCapable as String: true]
+    guard let list = TISCreateInputSourceList(filter as CFDictionary, false)?.takeRetainedValue() else { return [] }
+    return (list as NSArray).map { $0 as! TISInputSource }
 }
 struct Extra {
     let label: String
@@ -270,20 +278,28 @@ final class Tray: NSObject {
         }
         showApple()
     }
+    private func selectKeyboard(_ source: TISInputSource) {
+        if TISSelectInputSource(source) != noErr { NSSound.beep() }
+        owner.render()
+    }
+
+    func nextInputLanguage() {
+        let sources = enabledKeyboards()
+        guard sources.count > 1, let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return }
+        let id = sourceString(current, kTISPropertyInputSourceID)
+        let start = sources.firstIndex { sourceString($0, kTISPropertyInputSourceID) == id }
+        let next = ((start ?? -1) + 1) % sources.count
+        let ordered = sources[next...] + sources[..<next]
+        let language = inputLanguage(current)
+        selectKeyboard(ordered.first { inputLanguage($0) != language } ?? sources[next])
+    }
+
     func inputs(_ button:NSButton) {
         let m = NSMenu()
-        let sources = TISCreateInputSourceList(nil,false).takeRetainedValue() as NSArray
         let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        for s in sources {
-            let source = s as! TISInputSource
-            guard let selectable = TISGetInputSourceProperty(source,kTISPropertyInputSourceIsSelectCapable),
-                  CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(selectable).takeUnretainedValue()),
-                  sourceString(source,kTISPropertyInputSourceCategory) == (kTISCategoryKeyboardInputSource as String),
-                  let label = sourceString(source,kTISPropertyLocalizedName) else { continue }
-            owner.add(m,label) {
-                if TISSelectInputSource(source) != noErr { NSSound.beep() }
-                self.owner.render()
-            }
+        for source in enabledKeyboards() {
+            guard let label = sourceString(source,kTISPropertyLocalizedName) else { continue }
+            owner.add(m,label) { self.selectKeyboard(source) }
             if sourceString(source,kTISPropertyInputSourceID) == sourceString(current,kTISPropertyInputSourceID) { m.items.last?.state = .on }
         }
         m.addItem(.separator())

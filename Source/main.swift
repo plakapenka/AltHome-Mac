@@ -330,6 +330,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let desktopButton = DesktopButton(frame:.zero)
     let desktop = ShowDesktop()
     let menuBarEdge = MenuBarEdge()
+    lazy var layoutShortcut = LayoutShortcut { [weak self] in self?.tray.nextInputLanguage() }
     let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
     let preview = WindowPreview()
@@ -478,6 +479,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        layoutShortcut.stop()
         menuBarEdge.stop()
         if !CommandLine.arguments.contains("--ui-check") {
             _ = SystemDockVisibility.apply(hidden: false, defaults: defaults)
@@ -494,6 +496,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         guard AXIsProcessTrusted(), !querying else { return }
         if !CommandLine.arguments.contains("--ui-check") {
             if zoomMonitor == nil { monitorTitleBarZoom() }
+            if defaults.bool(forKey: "commandShiftLanguage") { _ = layoutShortcut.start() }
             if defaults.bool(forKey: "blockMenuBarHover") { _ = menuBarEdge.start() }
         }
         querying = true

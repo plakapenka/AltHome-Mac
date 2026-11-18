@@ -9,6 +9,7 @@ private enum SettingsPage: String, CaseIterable {
 private struct ShelfSettings: View {
     unowned let owner: Delegate
     @State private var page: SettingsPage? = .general
+    @AppStorage("commandShiftLanguage") private var commandShiftLanguage = false
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("dockMode") private var dockMode = DockMode.system
@@ -76,6 +77,19 @@ private struct ShelfSettings: View {
                         Section {
                             Toggle("Показывать дату", isOn: $showsDate)
                                 .onChange(of: showsDate) { _ in owner.render() }
+                            Toggle("Переключать язык по ⌘ + Shift", isOn: Binding(get: { commandShiftLanguage }, set: { enabled in
+                                if enabled {
+                                    guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
+                                    guard owner.layoutShortcut.start() else {
+                                        owner.notify("Не удалось включить сочетание. Проверьте доступ TaskShelf к мониторингу ввода в настройках macOS.")
+                                        return
+                                    }
+                                } else {
+                                    owner.layoutShortcut.stop()
+                                }
+                                commandShiftLanguage = enabled
+                            }))
+                            .help("Нажмите и отпустите Command и Shift вместе. Выключите, чтобы вернуться к штатному переключению.")
                             Toggle("Блокировать строку меню при наведении", isOn: Binding(get: { blockMenuBarHover }, set: { enabled in
                                 if enabled {
                                     guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
