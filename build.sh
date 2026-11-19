@@ -2,9 +2,10 @@
 set -eu
 cd "$(dirname "$0")"
 bundle="TaskShelf.app/Contents"
-mkdir -p "$bundle/MacOS"
+mkdir -p "$bundle/MacOS" "$bundle/Resources"
 xcrun --sdk macosx swiftc -swift-version 5 -O -target arm64-apple-macos13.0 Source/*.swift -o "$bundle/MacOS/TaskShelf"
 cp Info.plist "$bundle/Info.plist"
+cp LICENSE "$bundle/Resources/LICENSE"
 # Keep Accessibility grants valid across local rebuilds with the same development identity.
 identity=${TASKSHELF_SIGN_IDENTITY:-}
 if [ -z "$identity" ]; then

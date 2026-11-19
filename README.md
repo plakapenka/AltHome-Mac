@@ -147,3 +147,7 @@ open TaskShelf.app
 </details>
 
 Скриншоты и GIF собраны из интерфейса TaskShelf 1.63–1.74 с демонстрационными окнами, приложениями и сетями. [Подробная инструкция](Прочти.txt) · [История изменений](https://github.com/plakapenka/TaskShelf/commits/main/)
+
+## Лицензия
+
+TaskShelf распространяется по [лицензии MIT](LICENSE). © 2026 plakapenka.
