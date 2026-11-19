@@ -206,6 +206,8 @@ final class Tray: NSObject {
         let menu = StartMenu(library:startLibrary, size:size, launch:{ [weak self] item in
             self?.slidingPanel?.dismiss()
             self?.owner.launch(item)
+        }, remove:{ [weak self] item in
+            self?.removeStartApp(item)
         }, browse:{ [weak self] in
             self?.chooseStartPin()
         }, settings:{ [weak self] in
@@ -224,6 +226,42 @@ final class Tray: NSObject {
         }
         slidingPanel = panel
         panel.showPanel()
+    }
+
+    private func removeStartApp(_ item: Item) {
+        guard StartLibrary.canTrash(item) else { return }
+        slidingPanel?.dismiss()
+        NSApp.activate(ignoringOtherApps: true)
+        let url = item.url
+        let alert = NSAlert()
+        alert.icon = owner.ws.icon(forFile: item.path)
+        alert.messageText = "Переместить «\(item.name)» в Корзину?"
+        alert.informativeText = item.path
+        alert.addButton(withTitle: "Отмена").keyEquivalent = "\r"
+        alert.addButton(withTitle: "В Корзину").hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        let target = url.resolvingSymlinksInPath().standardizedFileURL
+        if owner.ws.runningApplications.contains(where: {
+            !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL == target
+        }) {
+            owner.notify("Сначала завершите «\(item.name)», затем снова выберите «Удалить».")
+            return
+        }
+        owner.ws.recycle([url]) { [weak self] moved, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard moved.keys.contains(where: { $0.standardizedFileURL.path == item.path }) else {
+                    self.owner.notify(error?.localizedDescription ?? "Не удалось переместить «\(item.name)» в Корзину.")
+                    return
+                }
+                self.startLibrary.didTrash(item)
+                if self.owner.pins.contains(where: { $0.path == item.path }) {
+                    self.owner.pins.removeAll { $0.path == item.path }
+                    self.owner.save()
+                }
+            }
+        }
     }
 
     private func startAccountMenu() -> NSMenu {

@@ -8,6 +8,7 @@ final class StartLibrary: ObservableObject {
     @Published private(set) var pins: [Item]
     private let defaults: UserDefaults
     private let pinKey = "startMenuPins"
+    private var scanGeneration = 0
     private var loading = false
 
     init(defaults: UserDefaults) {
@@ -18,6 +19,7 @@ final class StartLibrary: ObservableObject {
     func refresh() {
         guard !loading else { return }
         loading = true
+        let generation = scanGeneration
         let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleURL)
         DispatchQueue.global(qos:.userInitiated).async {
             let fm = FileManager.default
@@ -36,10 +38,27 @@ final class StartLibrary: ObservableObject {
             let result = urls.map { Item($0) }.filter { seen.insert($0.key).inserted }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             DispatchQueue.main.async {
-                self.apps = result
                 self.loading = false
+                if self.scanGeneration == generation { self.apps = result }
+                else { self.refresh() }
             }
         }
+    }
+
+    static func canTrash(_ item: Item) -> Bool {
+        let url = item.url.resolvingSymlinksInPath().standardizedFileURL
+        return url.pathExtension.lowercased() == "app"
+            && !url.path.hasPrefix("/System/")
+            && url != Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    func didTrash(_ item: Item) {
+        scanGeneration += 1
+        apps.removeAll { $0.path == item.path }
+        if pins.contains(where: { $0.path == item.path }) {
+            savePins(pins.filter { $0.path != item.path })
+        }
+        refresh()
     }
 
     func setPinned(_ item: Item, _ pinned: Bool) {
@@ -175,6 +194,7 @@ struct StartMenu: View {
     @ObservedObject var library: StartLibrary
     let size: CGSize
     let launch: (Item) -> Void
+    let remove: (Item) -> Void
     let browse: () -> Void
     let settings: () -> Void
     let accountMenu: () -> NSMenu
@@ -204,7 +224,12 @@ struct StartMenu: View {
         }
         .buttonStyle(.plain).accessibilityLabel(item.name)
         .onHover { inside in updateHover("row"+item.key, inside) }
-        .contextMenu { Button(pinLabel) { library.setPinned(item,!pinned) } }
+        .contextMenu {
+            Button(pinLabel) { library.setPinned(item,!pinned) }
+            Divider()
+            Button("Удалить", role: .destructive) { remove(item) }
+                .disabled(!StartLibrary.canTrash(item))
+        }
     }
 
     private func updateHover(_ key: String, _ inside: Bool) {
