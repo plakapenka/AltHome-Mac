@@ -130,7 +130,9 @@ class ShelfButton: NSButton {
     }
     override func mouseEntered(with e: NSEvent) { hover = true; tint() }
     override func mouseExited(with e: NSEvent) { hover = false; tint() }
+    var showsHover: Bool { hover }
     func tint() {
+        let hover = showsHover
         let outlined = selected || hover
         layer?.cornerRadius = outlined ? 6 : 0
         layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.2 : 0.12).cgColor
@@ -165,6 +167,10 @@ final class Tile: ShelfButton {
     var dismissPreview: (() -> Void)?
     var reorder: ((CGFloat) -> Void)?
     var finishDrag: (() -> Void)?
+    var revealForFileDrag: (() -> Void)?
+    private var fileHoverTimer: Timer?
+    private var fileHovering = false
+    override var showsHover: Bool { super.showsHover || fileHovering }
     private var dragImage: DragImage?
     private var pressPoint: NSPoint?
     private var cancelledClick = false
@@ -193,6 +199,7 @@ final class Tile: ShelfButton {
         target = self
         action = #selector(clicked)
         setAccessibilityLabel(item.name)
+        registerForDraggedTypes([.fileURL])
     }
     required init?(coder: NSCoder) { fatalError() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -241,12 +248,45 @@ final class Tile: ShelfButton {
     @objc func clicked() { press?() }
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with:event)
-        previewHover?(true)
+        if !fileHovering && NSEvent.pressedMouseButtons & 1 == 0 { previewHover?(true) }
     }
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with:event)
         previewHover?(false)
     }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        endFileHover()
+        guard isEnabled, revealForFileDrag != nil,
+              sender.draggingPasteboard.availableType(from: [.fileURL]) != nil else { return [] }
+        dismissPreview?()
+        fileHovering = true
+        tint()
+        let timer = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
+            guard let self, self.fileHovering, self.isEnabled, let window = self.window,
+                  self.visibleRect.contains(self.convert(window.mouseLocationOutsideOfEventStream, from: nil)),
+                  NSEvent.pressedMouseButtons & 1 != 0 else { return }
+            self.revealForFileDrag?()
+        }
+        fileHoverTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        // The tile reveals a window. Only the destination inside that window accepts the drop.
+        return []
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { [] }
+    override func draggingExited(_ sender: NSDraggingInfo?) { endFileHover() }
+    override func draggingEnded(_ sender: NSDraggingInfo) { endFileHover() }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { false }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { false }
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { endFileHover() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+    private func endFileHover() {
+        fileHoverTimer?.invalidate()
+        fileHoverTimer = nil
+        if fileHovering { fileHovering = false; tint() }
+    }
+
     func place(in targetFrame: NSRect, appearing: Bool, animate: Bool) {
         let oldX = frame.minX
         let modelX = layer?.position.x ?? 0
@@ -276,6 +316,8 @@ final class Tile: ShelfButton {
     func fadeOut(completion: @escaping () -> Void) {
         dragImage?.cancel()
         dragImage = nil
+        endFileHover()
+        revealForFileDrag = nil
         isEnabled = false
         setAccessibilityElement(false)
         toolTip = nil
@@ -628,6 +670,17 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 else { self.launch(item) }
                 self.refresh()
             }
+            tile.revealForFileDrag = task.app.map { app in
+                { [weak self] in
+                    guard let self, !app.isTerminated else { return }
+                    if let entry = task.entry {
+                        self.bring(entry.window, app, reportFailure: false)
+                    } else {
+                        app.unhide()
+                        app.activate(options: [])
+                    }
+                }
+            }
             if task.app == nil && preview.anchor === tile { preview.hide() }
             tile.reorder = { [weak self] x in self?.moveTask(task.id, toX: x) }
             tile.finishDrag = { [weak self] in self?.draggingTile = nil }
@@ -705,8 +758,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
         } else { launch(item) }
     }
     @discardableResult
-    func bring(_ window: AXUIElement, _ app: NSRunningApplication) -> Bool {
-        if minimized(window) && !setMini(window,false) { notify("Не удалось восстановить окно."); return false }
+    func bring(_ window: AXUIElement, _ app: NSRunningApplication, reportFailure: Bool = true) -> Bool {
+        if minimized(window) && !setMini(window,false) {
+            if reportFailure { notify("Не удалось восстановить окно.") }
+            return false
+        }
         app.unhide()
         app.activate(options:[])
         _ = AXUIElementPerformAction(window,kAXRaiseAction as CFString)
