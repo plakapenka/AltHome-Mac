@@ -11,6 +11,15 @@ func nearlyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
     abs(a.width-b.width) < 2 && abs(a.height-b.height) < 2
 }
 
+// Match the result of a native zoom, including vertical-only zoom and macOS tiling margins.
+func shelfLimitedZoom(_ frame: CGRect, before: CGRect, visible: CGRect, usable: CGRect) -> CGRect? {
+    guard !nearlyEqual(frame, before), usable.maxY < visible.maxY,
+          frame.minY >= visible.minY - 24, frame.minY <= visible.minY + 24,
+          frame.maxY >= visible.maxY - 24, frame.maxY > usable.maxY,
+          frame.intersects(usable), frame.minY < usable.maxY else { return nil }
+    return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: usable.maxY - frame.minY)
+}
+
 struct TitleBarClick {
     let window: AXUIElement
     let app: NSRunningApplication
@@ -43,11 +52,12 @@ extension Delegate {
             guard let context else { return Unmanaged.passUnretained(event) }
             let owner = Unmanaged<Delegate>.fromOpaque(context).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                owner.zoomCheck?.cancel()
                 owner.titleBarClick = nil
                 owner.chatTitleDrag = nil
                 if let tap = owner.zoomMonitor { CGEvent.tapEnable(tap:tap,enable:true) }
-            } else if owner.handleTitleBarMouse(type,event) {
-                return nil
+            } else {
+                owner.handleTitleBarMouse(type, event)
             }
             return Unmanaged.passUnretained(event)
         }
@@ -59,33 +69,79 @@ extension Delegate {
         CGEvent.tapEnable(tap:tap,enable:true)
     }
 
-    private func handleTitleBarMouse(_ type: CGEventType, _ event: CGEvent) -> Bool {
+    private func handleTitleBarMouse(_ type: CGEventType, _ event: CGEvent) {
         if type == .leftMouseDown {
+            zoomCheck?.cancel()
             titleBarClick = nil
             chatTitleDrag = nil
-            guard event.flags.intersection([.maskCommand,.maskAlternate,.maskControl,.maskShift]).isEmpty else { return false }
+            guard event.flags.intersection([.maskCommand,.maskAlternate,.maskControl,.maskShift]).isEmpty else { return }
             let count = event.getIntegerValueField(.mouseEventClickState)
             if count == 1, ws.frontmostApplication?.bundleIdentifier == "com.openai.codex",
-               let click = titleTarget(at:event.location, forDrag:true) {
+               let click = chatDragTarget(at:event.location) {
                 chatTitleDrag = ChatTitleDrag(click:click,started:ProcessInfo.processInfo.systemUptime)
             }
-            guard count == 2,
-                  UserDefaults.standard.string(forKey:"AppleActionOnDoubleClick") == "Fill",
-                  let click = titleTarget(at:event.location, forDrag:false) else { return false }
-            titleBarClick = click
-            return true
+            if count == 2, let app = ws.frontmostApplication, app != .current {
+                let root = AXUIElementCreateApplication(app.processIdentifier)
+                AXUIElementSetMessagingTimeout(root, 0.12)
+                if let window = element(root, kAXFocusedWindowAttribute), let frame = windowRect(window),
+                   frame.contains(event.location) {
+                    titleBarClick = TitleBarClick(window: window, app: app, point: event.location, frame: frame)
+                }
+            }
         } else if chatTitleDrag != nil {
             updateChatDrag(at:event.location, ending:type == .leftMouseUp)
         } else if type == .leftMouseUp, let click = titleBarClick {
             titleBarClick = nil
-            guard hypot(event.location.x-click.point.x,event.location.y-click.point.y) <= 4 else { return true }
-            DispatchQueue.main.async { [weak self] in
-                guard !click.app.isTerminated, click.app.isActive else { return }
-                self?.fit(click.window,click.app)
+            if hypot(event.location.x-click.point.x, event.location.y-click.point.y) <= 4 {
+                checkNativeZoom(click, attempt: 0)
             }
-            return true
         }
-        return false
+    }
+
+    private func checkNativeZoom(_ click: TitleBarClick, attempt: Int, lastFrame: CGRect? = nil) {
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, click.app.isActive, !click.app.isTerminated,
+                  let primary = NSScreen.screens.first,
+                  let screen = NSScreen.screens.first(where: { accessibilityFrame($0.frame, primary: primary).contains(click.point) }),
+                  screen.frame.intersects(self.bar.frame),
+                  let frame = windowRect(click.window), !minimized(click.window),
+                  attr(click.window, "AXFullScreen") as? Bool != true else { return }
+            let visible = accessibilityFrame(screen.visibleFrame, primary: primary)
+            let usable = accessibilityFrame(self.usableFrame(on: screen), primary: primary)
+            let previous = self.expanded.first { CFEqual($0.1, click.window) && nearlyEqual($0.3, click.frame) }
+            if let previous, nearlyEqual(previous.2, frame) {
+                self.expanded.removeAll { CFEqual($0.1, click.window) }
+                return
+            }
+            // Writing an intermediate animation frame lets the app overwrite our adjustment.
+            if frame == lastFrame, let fitted = shelfLimitedZoom(frame, before: click.frame, visible: visible, usable: usable) {
+                self.applyZoomBounds(previous?.2 ?? fitted, native: frame, click: click,
+                                     restoring: previous != nil, retries: 4)
+            } else if attempt < 12 {
+                self.checkNativeZoom(click, attempt: attempt + 1, lastFrame: frame)
+            }
+        }
+        zoomCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0.035 : 0.1), execute: check)
+    }
+
+    private func applyZoomBounds(_ goal: CGRect, native: CGRect, click: TitleBarClick, restoring: Bool, retries: Int) {
+        if goal.origin == native.origin {
+            // Moving an already tiled window can restart the system zoom animation.
+            var size = goal.size
+            guard let value = AXValueCreate(.cgSize, &size),
+                  AXUIElementSetAttributeValue(click.window, kAXSizeAttribute as CFString, value) == .success else { return }
+        } else if !writeFrame(goal, to: click.window) { return }
+        expanded.removeAll { CFEqual($0.1, click.window) }
+        if !restoring { expanded.append((click.app.processIdentifier, click.window, click.frame, goal)) }
+        guard retries > 0 else { return }
+        let verify = DispatchWorkItem { [weak self] in
+            guard let self, click.app.isActive, let actual = windowRect(click.window),
+                  nearlyEqual(actual, native), attr(click.window, "AXFullScreen") as? Bool != true else { return }
+            self.applyZoomBounds(goal, native: native, click: click, restoring: restoring, retries: retries - 1)
+        }
+        zoomCheck = verify
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: verify)
     }
 
     private func updateChatDrag(at point: CGPoint, ending: Bool) {
@@ -110,9 +166,7 @@ extension Delegate {
         drag.lastWrite = now
     }
 
-    private func titleTarget(at point: CGPoint, forDrag: Bool) -> TitleBarClick? {
-        guard let primary = NSScreen.screens.first,
-              forDrag || accessibilityFrame(primary.frame,primary:primary).contains(point) else { return nil }
+    private func chatDragTarget(at point: CGPoint) -> TitleBarClick? {
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system,0.12)
         var hit: AXUIElement?
@@ -120,7 +174,7 @@ extension Delegate {
               let hit, let role = attr(hit,kAXRoleAttribute) as? String else { return nil }
         let target = role == kAXWindowRole ? hit : element(hit,kAXWindowAttribute)
         guard let window = target, let rect = windowRect(window), rect.contains(point),
-              point.y-rect.minY < (forDrag ? 36 : 52), attr(window,"AXFullScreen") as? Bool != true else { return nil }
+              point.y-rect.minY < 36, attr(window,"AXFullScreen") as? Bool != true else { return nil }
         var pid: pid_t = 0
         guard AXUIElementGetPid(window,&pid) == .success,
               let app = NSRunningApplication(processIdentifier:pid), app.isActive else { return nil }
@@ -132,20 +186,12 @@ extension Delegate {
                       (attr(hit,kAXValueAttribute) as? String).map { !$0.isEmpty && $0 == attr(window,kAXTitleAttribute) as? String } == true
         case kAXGroupRole:
             let parent = element(hit,kAXParentAttribute)
-            let nativeTitle = parent.map { CFEqual($0,window) || attr($0,kAXRoleAttribute) as? String == kAXToolbarRole } == true
-            // GitHub Desktop exposes the empty 31-point title strip as a window-sized
-            // Electron group. The repository and branch controls begin below that strip.
-            let gitHubTitle = !forDrag && app.bundleIdentifier == "com.github.GitHubClient" &&
-                point.y - rect.minY < 31 && windowRect(hit).map { nearlyEqual($0,rect) } == true
-            isTitle = nativeTitle || gitHubTitle
+            isTitle = parent.map { CFEqual($0,window) || attr($0,kAXRoleAttribute) as? String == kAXToolbarRole } == true
         default: isTitle = false
         }
         var writable = DarwinBoolean(false)
-        guard isTitle, AXUIElementIsAttributeSettable(window,(forDrag ? kAXPositionAttribute : kAXSizeAttribute) as CFString,&writable) == .success,
+        guard isTitle, AXUIElementIsAttributeSettable(window,kAXPositionAttribute as CFString,&writable) == .success,
               writable.boolValue else { return nil }
-        // Let macOS restore a window that was already natively filled before TaskShelf started.
-        if forDrag && app.bundleIdentifier != "com.openai.codex" { return nil }
-        if !forDrag && nearlyEqual(rect,accessibilityFrame(primary.visibleFrame,primary:primary)) { return nil }
         return TitleBarClick(window:window,app:app,point:point,frame:rect)
     }
 }

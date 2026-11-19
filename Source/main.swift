@@ -394,6 +394,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var remembered: [pid_t:AXUIElement] = [:]
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
     var zoomMonitor: CFMachPort?
+    var zoomCheck: DispatchWorkItem?
     var titleBarClick: TitleBarClick?
     var chatTitleDrag: ChatTitleDrag?
     var timer: Timer?
