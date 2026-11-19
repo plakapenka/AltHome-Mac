@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Carbon
 import CoreWLAN
@@ -113,6 +114,9 @@ final class Tray: NSObject {
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
         surface = view
+        volumeChanges = OutputVolumeIndicator.shared.$symbol.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.owner.layoutControls()
+        }
         apple.target = self; apple.action = #selector(showApple)
         view.addSubview(apple)
         dockEdge.title = ""
@@ -499,6 +503,7 @@ final class Tray: NSObject {
         let wifi = CWWiFiClient.shared().interface()?.powerOn()
         let battery = BatteryStatus.current()
     }
+    private var volumeChanges: AnyCancellable?
     private var lastStatus: Status?
     func statusChanged() -> Bool { Status() != lastStatus }
     func refreshVisibleDock() { dockMirror.refresh() }
@@ -524,7 +529,7 @@ final class Tray: NSObject {
             self.inputs(button)
         }))
         system(.wifi,"Wi-Fi",status.wifi == false ? "wifi.slash" : "wifi")
-        system(.sound,"Звук","speaker.wave.2")
+        system(.sound,"Звук",OutputVolumeIndicator.shared.symbol)
         if let battery = status.battery {
             controls.append(("Аккумулятор · " + battery.description, nil, nil, battery.trayIcon, { button in
                 self.showControls(.battery, above:button)

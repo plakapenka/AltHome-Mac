@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import Combine
 
 struct AudioOutput: Identifiable {
     let id: AudioDeviceID
@@ -43,14 +44,75 @@ enum ShelfAudio {
 
     static func volume(_ device: AudioDeviceID) -> Float? {
         var key = address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume,output:true)
-        var level: Float32 = 0, size = UInt32(MemoryLayout<Float32>.size), writable = DarwinBoolean(false)
-        guard AudioObjectIsPropertySettable(device,&key,&writable) == noErr, writable.boolValue,
-              AudioObjectGetPropertyData(device,&key,0,nil,&size,&level) == noErr else { return nil }
+        var writable = DarwinBoolean(false)
+        guard AudioObjectIsPropertySettable(device,&key,&writable) == noErr, writable.boolValue else { return nil }
+        return readVolume(device, key: key)
+    }
+
+    private static func readVolume(_ device: AudioDeviceID, key: AudioObjectPropertyAddress) -> Float? {
+        var key = key, level: Float32 = 0, size = UInt32(MemoryLayout<Float32>.size)
+        guard AudioObjectGetPropertyData(device,&key,0,nil,&size,&level) == noErr, level.isFinite else { return nil }
         return level
+    }
+
+    static func speakerSymbol(volume: Float?, muted: Bool) -> String {
+        if muted { return "speaker.slash" }
+        guard let volume else { return "speaker" }
+        if volume <= 0 { return "speaker.slash" }
+        if volume <= 1.0 / 3 { return "speaker.wave.1" }
+        if volume <= 2.0 / 3 { return "speaker.wave.2" }
+        return "speaker.wave.3"
+    }
+
+    static func speakerSymbol(for device: AudioDeviceID) -> String {
+        var muteKey = address(kAudioDevicePropertyMute, output: true)
+        var muted: UInt32 = 0, size = UInt32(MemoryLayout<UInt32>.size)
+        let hasMute = AudioObjectGetPropertyData(device, &muteKey, 0, nil, &size, &muted) == noErr
+        let volume = readVolume(device, key: address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, output: true))
+            ?? readVolume(device, key: address(kAudioDevicePropertyVolumeScalar, output: true))
+        return speakerSymbol(volume: volume, muted: hasMute && muted != 0)
     }
 
     static func setVolume(_ value: Float, device: AudioDeviceID) -> Bool {
         var key = address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume,output:true), level = value
         return AudioObjectSetPropertyData(device,&key,0,nil,UInt32(MemoryLayout.size(ofValue:level)),&level) == noErr
+    }
+}
+
+// Observe the selected output only. Core Audio can deliver a pending callback after a route change,
+// so refresh always reads the current output instead of the device that sent the notification.
+final class OutputVolumeIndicator: ObservableObject {
+    static let shared = OutputVolumeIndicator()
+    @Published private(set) var symbol = "speaker"
+    private var device = AudioDeviceID(kAudioObjectUnknown)
+    private var subscriptions: [AudioObjectPropertyAddress] = []
+    private lazy var changed: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.refresh() }
+
+    private init() {
+        var key = ShelfAudio.address(kAudioHardwarePropertyDefaultOutputDevice)
+        AudioObjectAddPropertyListenerBlock(ShelfAudio.system, &key, .main, changed)
+        refresh()
+    }
+
+    private func refresh() {
+        let current = ShelfAudio.current
+        if current != device {
+            for var key in subscriptions {
+                AudioObjectRemovePropertyListenerBlock(device, &key, .main, changed)
+            }
+            subscriptions.removeAll()
+            device = current
+            if current != kAudioObjectUnknown {
+                for selector in [kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute] {
+                    var key = ShelfAudio.address(selector, output: true)
+                    key.mElement = kAudioObjectPropertyElementWildcard
+                    if AudioObjectAddPropertyListenerBlock(current, &key, .main, changed) == noErr {
+                        subscriptions.append(key)
+                    }
+                }
+            }
+        }
+        let next = current == kAudioObjectUnknown ? "speaker" : ShelfAudio.speakerSymbol(for: current)
+        if next != symbol { symbol = next }
     }
 }

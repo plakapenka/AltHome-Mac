@@ -346,6 +346,7 @@ private struct BluetoothControls: View {
 }
 
 private struct SoundControls: View {
+    @ObservedObject private var indicator = OutputVolumeIndicator.shared
     @State private var devices: [AudioOutput] = []
     @State private var device: AudioDeviceID = 0
     @State private var volume: Float?
@@ -358,7 +359,7 @@ private struct SoundControls: View {
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
             HStack {
-                Image(systemName:(volume ?? 0) > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill").foregroundStyle(.secondary)
+                Image(systemName:indicator.symbol + ".fill").frame(width:22).foregroundStyle(.secondary)
                 Slider(value:Binding(get:{ Double(volume ?? 0) },set:{ value in
                     if ShelfAudio.setVolume(Float(value),device:device) { volume = Float(value); message = "" }
                     else { message = "Не удалось изменить громкость."; load() }
