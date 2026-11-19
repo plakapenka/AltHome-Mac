@@ -1,7 +1,7 @@
 import AppKit
 import IOKit.ps
 
-struct BatteryStatus {
+struct BatteryStatus: Equatable {
     let fraction: Double
     let onACPower: Bool
 

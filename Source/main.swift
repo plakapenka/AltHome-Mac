@@ -72,7 +72,7 @@ enum TileID: Hashable {
     case app(String)
     case window(pid_t, AXUIElement)
 }
-struct WindowEntry {
+struct WindowEntry: Equatable {
     let window: AXUIElement
     let title: String
     let focused: Bool
@@ -386,7 +386,11 @@ final class Delegate: NSObject, NSApplicationDelegate {
     private var draggingTile: TileID?
     private lazy var appOrder = defaults.stringArray(forKey: "taskAppOrder") ?? []
     var observed: [CGWindowID:pid_t] = [:]
-    var querying = false
+    private var monitors: [pid_t:WindowMonitor] = [:]
+    private var nextReconciliation: TimeInterval = 0
+    private var hadWindowAccess = false
+    private var taskRenderPending = false
+    private var lastClockMinute = -1
     var remembered: [pid_t:AXUIElement] = [:]
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
     var zoomMonitor: CFMachPort?
@@ -446,11 +450,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
         timeFormatter.dateFormat = "HH:mm"
         dateFormatter.dateFormat = "dd.MM.yyyy"
         let nc = ws.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
+            nc.addObserver(self, selector:#selector(workspaceChanged(_:)), name:name, object:nil)
+        }
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             nc.addObserver(self,selector:#selector(refresh),name:name,object:nil)
         }
         NotificationCenter.default.addObserver(self, selector:#selector(refresh),name:NSApplication.didChangeScreenParametersNotification,object:nil)
-        timer = Timer.scheduledTimer(timeInterval:2,target:self,selector:#selector(refresh),userInfo:nil,repeats:true)
+        timer = Timer.scheduledTimer(timeInterval:2,target:self,selector:#selector(maintenance),userInfo:nil,repeats:true)
         timer?.tolerance = 0.4
         refresh()
         bar.orderFrontRegardless()
@@ -522,6 +529,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
+        timer?.invalidate()
+        monitors.values.forEach { $0.stop() }
+        monitors.removeAll()
         _ = fnCommand.setEnabled(false)
         layoutShortcut.stop()
         menuBarEdge.stop()
@@ -533,36 +543,78 @@ final class Delegate: NSObject, NSApplicationDelegate {
     func liveApps() -> [NSRunningApplication] {
         ws.runningApplications.filter { $0.activationPolicy == .regular && !$0.isTerminated && $0.bundleURL != nil && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
     }
+    @objc private func workspaceChanged(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { refresh(); return }
+        syncWindows(changedPID: app.processIdentifier)
+        renderTasks()
+    }
+
     @objc func refresh() {
-        observed = observedWindows(previous:observed)
-        if !AXIsProcessTrusted() { snapshots.removeAll() }
+        nextReconciliation = ProcessInfo.processInfo.systemUptime + 30
+        syncWindows(changedPID: nil)
         render()
-        guard AXIsProcessTrusted(), !querying else { return }
-        if !CommandLine.arguments.contains("--ui-check") {
+    }
+
+    private func syncWindows(changedPID: pid_t?) {
+        let apps = liveApps()
+        hadWindowAccess = AXIsProcessTrusted()
+        observed = observedWindows(previous: observed)
+        let live = Set(apps.map(\.processIdentifier))
+        for pid in Array(monitors.keys) where !hadWindowAccess || !live.contains(pid) {
+            monitors.removeValue(forKey: pid)?.stop()
+            snapshots.removeValue(forKey: pid)
+        }
+        if hadWindowAccess && !CommandLine.arguments.contains("--ui-check") {
             if zoomMonitor == nil { monitorTitleBarZoom() }
             _ = fnCommand.setEnabled(defaults.bool(forKey: "fnCommandLetters"))
             _ = layoutShortcut.apply(LayoutShortcutMode.saved(in: defaults))
             if defaults.bool(forKey: "blockMenuBarHover") { _ = menuBarEdge.start() }
-        }
-        querying = true
-        let apps = liveApps()
-        DispatchQueue.global(qos:.userInitiated).async {
-            var result: [pid_t:[WindowEntry]] = [:]
             for app in apps {
-                let (focused, listed) = queryWindows(app)
-                guard let all = listed else { continue }
-                result[app.processIdentifier] = all.compactMap { w in
-                    guard attr(w,kAXRoleAttribute) as? String == kAXWindowRole else { return nil }
-                    return WindowEntry(window:w,title:attr(w,kAXTitleAttribute) as? String ?? "",focused:(focused.map { CFEqual($0,w) } ?? false) && !minimized(w))
+                let pid = app.processIdentifier
+                if let existing = monitors[pid], !existing.app.isTerminated {
+                    if changedPID == nil || changedPID == pid { existing.request() }
+                    continue
                 }
-            }
-            let completed = result
-            DispatchQueue.main.async {
-                self.snapshots = AXIsProcessTrusted() ? completed : [:]
-                self.querying = false
-                self.render()
+                monitors.removeValue(forKey: pid)?.stop()
+                snapshots.removeValue(forKey: pid)
+                monitors[pid] = WindowMonitor(app: app) { [weak self] entries in
+                    guard let self, !app.isTerminated, self.snapshots[pid] != entries else { return }
+                    self.snapshots[pid] = entries
+                    self.scheduleTaskRender()
+                }
+                monitors[pid]?.request()
             }
         }
+    }
+
+    private func scheduleTaskRender() {
+        guard !taskRenderPending else { return }
+        taskRenderPending = true
+        DispatchQueue.main.async {
+            self.taskRenderPending = false
+            self.renderTasks()
+        }
+    }
+
+    @objc private func maintenance() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now >= nextReconciliation || AXIsProcessTrusted() != hadWindowAccess {
+            refresh()
+            return
+        }
+        // WindowServer also covers apps which omit AX notifications or have no AX window list.
+        let latest = observedWindows(previous: observed)
+        if observed != latest {
+            let changed = Set(observed.compactMap { latest[$0.key] != $0.value ? $0.value : nil })
+                .union(latest.compactMap { observed[$0.key] != $0.value ? $0.value : nil })
+            observed = latest
+            for pid in changed { monitors[pid]?.request() }
+            if changed.contains(where: { snapshots[$0] == nil }) { scheduleTaskRender() }
+        }
+        let minute = Int(Date().timeIntervalSince1970 / 60)
+        if minute != lastClockMinute || tray.statusChanged() { layoutControls() }
+        tray.scan()
+        if tray.dockVisible { tray.refreshVisibleDock() }
     }
     private func updateClock(at date: Date, rightEdge: CGFloat) {
         let alignment = NSMutableParagraphStyle()
@@ -583,6 +635,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         clockLabel.frame = NSRect(x:rightEdge-width, y:7, width:width, height:36)
     }
     func render() {
+        layoutControls()
+        renderTasks()
+    }
+    func layoutControls() {
         guard let screen = NSScreen.screens.first, bar != nil else { return }
         let bounds = screen.visibleFrame
         let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
@@ -590,10 +646,19 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let width = frame.width
         let desktopWidth: CGFloat = 12
         desktopButton.frame = NSRect(x:width-desktopWidth, y:0, width:desktopWidth, height:frame.height)
-        updateClock(at:Date(), rightEdge:desktopButton.frame.minX-3)
+        let now = Date()
+        lastClockMinute = Int(now.timeIntervalSince1970 / 60)
+        updateClock(at:now, rightEdge:desktopButton.frame.minX-3)
         let trayLeft = tray.layout(width)
         let tasksLeft = tray.apple.frame.maxX + 4
-        scroll.frame = NSRect(x: tasksLeft, y: 3, width: max(1, trayLeft - tasksLeft - 3), height: 44)
+        let tasksFrame = NSRect(x: tasksLeft, y: 3, width: max(1, trayLeft - tasksLeft - 3), height: 44)
+        if scroll.frame != tasksFrame {
+            scroll.frame = tasksFrame
+            updateStripWidth()
+        }
+    }
+    private func renderTasks() {
+        guard bar != nil else { return }
         let apps = liveApps()
         let pids = Set(apps.map { $0.processIdentifier })
         remembered = remembered.filter { pids.contains($0.key) }

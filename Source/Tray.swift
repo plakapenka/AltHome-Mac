@@ -22,7 +22,7 @@ private func enabledKeyboards() -> [TISInputSource] {
     guard let list = TISCreateInputSourceList(filter as CFDictionary, false)?.takeRetainedValue() else { return [] }
     return (list as NSArray).map { $0 as! TISInputSource }
 }
-struct Extra {
+struct Extra: Equatable {
     let label: String
     let identifier: String
     let app: NSRunningApplication
@@ -332,7 +332,12 @@ final class Tray: NSObject {
             var seen = Set<String>()
             let result = items.filter { seen.insert("\($0.app.processIdentifier):" + ($0.identifier.isEmpty ? $0.label : $0.identifier)).inserted }
             DispatchQueue.main.async {
-                self.extras = AXIsProcessTrusted() ? result : []; self.scanning = false; self.owner.render()
+                self.scanning = false
+                let updated = AXIsProcessTrusted() ? result : []
+                if self.extras != updated {
+                    self.extras = updated
+                    self.owner.layoutControls()
+                }
             }
         }
     }
@@ -418,7 +423,17 @@ final class Tray: NSObject {
     @objc func invoke(_ b:NSButton) {
         if actions.indices.contains(b.tag) { actions[b.tag](b) }
     }
+    private struct Status: Equatable {
+        let language = inputCode()
+        let wifi = CWWiFiClient.shared().interface()?.powerOn()
+        let battery = BatteryStatus.current()
+    }
+    private var lastStatus: Status?
+    func statusChanged() -> Bool { Status() != lastStatus }
+    func refreshVisibleDock() { dockMirror.refresh() }
     func layout(_ width:CGFloat) -> CGFloat {
+        let status = Status()
+        lastStatus = status
         let edgeWidth = min(width * 0.45, 440)
         dockEdge.frame = NSRect(x: (width - edgeWidth) / 2, y: 0, width: edgeWidth, height: 3)
         dockEdge.isHidden = !dockEnabled
@@ -430,17 +445,16 @@ final class Tray: NSObject {
         apple.frame = NSRect(x: 4, y: 2, width: 52, height: 46)
         scan()
         var controls: [Control] = []
-        let wifi = CWWiFiClient.shared().interface()
         func system(_ page:TrayPage, _ label:String, _ symbol:String) {
             controls.append((label,symbol,nil,nil,{ button in self.showControls(page,above:button) }))
         }
-        controls.append(("Источник ввода",nil,inputCode(),nil,{ button in
+        controls.append(("Источник ввода",nil,status.language,nil,{ button in
             self.popover?.performClose(nil)
             self.inputs(button)
         }))
-        system(.wifi,"Wi-Fi",wifi?.powerOn() == false ? "wifi.slash" : "wifi")
+        system(.wifi,"Wi-Fi",status.wifi == false ? "wifi.slash" : "wifi")
         system(.sound,"Звук","speaker.wave.2")
-        if let battery = BatteryStatus.current() {
+        if let battery = status.battery {
             controls.append(("Аккумулятор · " + battery.description, nil, nil, battery.trayIcon, { button in
                 self.showControls(.battery, above:button)
             }))
