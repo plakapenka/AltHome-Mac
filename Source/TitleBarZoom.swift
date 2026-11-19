@@ -121,6 +121,9 @@ extension Delegate {
         let target = role == kAXWindowRole ? hit : element(hit,kAXWindowAttribute)
         guard let window = target, let rect = windowRect(window), rect.contains(point),
               point.y-rect.minY < (forDrag ? 36 : 52), attr(window,"AXFullScreen") as? Bool != true else { return nil }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window,&pid) == .success,
+              let app = NSRunningApplication(processIdentifier:pid), app.isActive else { return nil }
         let isTitle: Bool
         switch role {
         case kAXWindowRole, kAXToolbarRole: isTitle = true
@@ -129,14 +132,17 @@ extension Delegate {
                       (attr(hit,kAXValueAttribute) as? String).map { !$0.isEmpty && $0 == attr(window,kAXTitleAttribute) as? String } == true
         case kAXGroupRole:
             let parent = element(hit,kAXParentAttribute)
-            isTitle = parent.map { CFEqual($0,window) || attr($0,kAXRoleAttribute) as? String == kAXToolbarRole } == true
+            let nativeTitle = parent.map { CFEqual($0,window) || attr($0,kAXRoleAttribute) as? String == kAXToolbarRole } == true
+            // GitHub Desktop exposes the empty 31-point title strip as a window-sized
+            // Electron group. The repository and branch controls begin below that strip.
+            let gitHubTitle = !forDrag && app.bundleIdentifier == "com.github.GitHubClient" &&
+                point.y - rect.minY < 31 && windowRect(hit).map { nearlyEqual($0,rect) } == true
+            isTitle = nativeTitle || gitHubTitle
         default: isTitle = false
         }
         var writable = DarwinBoolean(false)
-        var pid: pid_t = 0
         guard isTitle, AXUIElementIsAttributeSettable(window,(forDrag ? kAXPositionAttribute : kAXSizeAttribute) as CFString,&writable) == .success,
-              writable.boolValue, AXUIElementGetPid(window,&pid) == .success,
-              let app = NSRunningApplication(processIdentifier:pid), app.isActive else { return nil }
+              writable.boolValue else { return nil }
         // Let macOS restore a window that was already natively filled before TaskShelf started.
         if forDrag && app.bundleIdentifier != "com.openai.codex" { return nil }
         if !forDrag && nearlyEqual(rect,accessibilityFrame(primary.visibleFrame,primary:primary)) { return nil }
