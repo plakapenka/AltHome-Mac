@@ -251,16 +251,49 @@ final class Tray: NSObject {
         owner.ws.recycle([url]) { [weak self] moved, error in
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard moved.keys.contains(where: { $0.standardizedFileURL.path == item.path }) else {
-                    self.owner.notify(error?.localizedDescription ?? "Не удалось переместить «\(item.name)» в Корзину.")
+                if moved.keys.contains(where: { $0.standardizedFileURL.path == item.path }) {
+                    self.didTrashStartApp(item)
+                } else if let error = error as NSError?, ApplicationTrash.isPermissionError(error) {
+                    self.trashStartAppWithFinder(item)
+                } else if let error = error as NSError?, ApplicationTrash.isCancellation(error) {
                     return
-                }
-                self.startLibrary.didTrash(item)
-                if self.owner.pins.contains(where: { $0.path == item.path }) {
-                    self.owner.pins.removeAll { $0.path == item.path }
-                    self.owner.save()
+                } else {
+                    self.owner.notify(error?.localizedDescription ?? "Не удалось переместить «\(item.name)» в Корзину.")
                 }
             }
+        }
+    }
+
+    private func trashStartAppWithFinder(_ item: Item) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try ApplicationTrash.moveWithFinder(item.url) }
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self.didTrashStartApp(item)
+                case .failure(let failure):
+                    let error = failure as NSError
+                    if ApplicationTrash.isCancellation(error) { return }
+                    let alert = NSAlert()
+                    alert.messageText = "Не удалось переместить «\(item.name)» в Корзину"
+                    alert.informativeText = error.domain == NSOSStatusErrorDomain && error.code == Int(errAEEventNotPermitted)
+                        ? "Разрешите TaskShelf управлять Finder в разделе «Конфиденциальность и безопасность → Автоматизация» или откройте расположение программы и удалите её в Finder."
+                        : error.localizedDescription
+                    alert.addButton(withTitle: "Закрыть")
+                    alert.addButton(withTitle: "Показать в Finder")
+                    if alert.runModal() == .alertSecondButtonReturn {
+                        self.owner.ws.activateFileViewerSelecting([item.url])
+                    }
+                }
+            }
+        }
+    }
+
+    private func didTrashStartApp(_ item: Item) {
+        startLibrary.didTrash(item)
+        if owner.pins.contains(where: { $0.path == item.path }) {
+            owner.pins.removeAll { $0.path == item.path }
+            owner.save()
         }
     }
 
