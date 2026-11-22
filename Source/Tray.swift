@@ -51,7 +51,8 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
     return result
 }
 
-final class Tray: NSObject {
+final class Tray: NSObject, NSPopoverDelegate {
+    private static let gridLabel = "Значки приложений"
     unowned let owner: Delegate
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
     let apple = StartButton(frame:.zero)
@@ -103,7 +104,7 @@ final class Tray: NSObject {
         hideDock()
         if dockEnabled && pinned { showDock() }
     }
-    var buttons: [ShelfButton] = []
+    var buttons: [TrayControlButton] = []
     var extras: [Extra] = []
     var scanTime = Date.distantPast
     var scanning = false
@@ -489,13 +490,23 @@ final class Tray: NSObject {
         })
         let panel = NSPopover()
         panel.animates = false
+        panel.delegate = self
         panel.behavior = .transient
         panel.contentViewController = NSHostingController(rootView:grid)
         panel.contentSize = grid.size
         popover = panel
         popoverAnchor = anchor
         panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
+        (anchor as? TrayControlButton)?.setExpanded(panel.isShown)
     }
+
+    func popoverDidClose(_ notification: Notification) {
+        guard let closed = notification.object as? NSPopover, closed === popover else { return }
+        (popoverAnchor as? TrayControlButton)?.setExpanded(false)
+        popover = nil
+        popoverAnchor = nil
+    }
+
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
     private var actions: [(NSButton)->Void] = []
     @objc func invoke(_ b:NSButton) {
@@ -543,7 +554,7 @@ final class Tray: NSObject {
         let extraItems = extras.filter { !excludedFamilies.contains(family($0)) }
         let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
         if !applications.isEmpty {
-            controls.insert(("Значки приложений","chevron.up",nil,nil,{ button in
+            controls.insert((Self.gridLabel,"chevron.up",nil,nil,{ button in
                 self.showApplicationGrid(applications,above:button)
             }),at:0)
         }
@@ -568,7 +579,7 @@ final class Tray: NSObject {
         }
         actions = controls.map { $0.click }
         while buttons.count < controls.count {
-            let b = ShelfButton(frame:.zero); b.contentTintColor = .white; b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
+            let b = TrayControlButton(frame:.zero); b.contentTintColor = .white; b.isBordered = false; b.font = .systemFont(ofSize:12,weight:.semibold)
             b.target = self; b.action = #selector(invoke(_:)); surface.addSubview(b); buttons.append(b)
         }
         while buttons.count > controls.count { buttons.removeLast().removeFromSuperview() }
@@ -576,9 +587,13 @@ final class Tray: NSObject {
         for (i,c) in controls.enumerated() {
             let b = buttons[i]; b.tag = i; b.toolTip = c.label; b.setAccessibilityLabel(c.label)
             b.title = c.text ?? ""
-            if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
+            let isDisclosure = c.label == Self.gridLabel
+            if !isDisclosure && b === popoverAnchor { popover?.performClose(nil) }
+            if isDisclosure { b.image = nil }
+            else if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
             else { b.image = c.icon }
             b.frame = NSRect(x:left+CGFloat(i)*32,y:7,width:32,height:36)
+            b.setDisclosureVisible(isDisclosure)
         }
         return left
     }

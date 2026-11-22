@@ -1,0 +1,50 @@
+import AppKit
+
+/// Only the glyph rotates, keeping the hover outline and click target stationary.
+final class TrayControlButton: ShelfButton {
+    private let chevron = CALayer()
+    private var expanded = false
+
+    func setDisclosureVisible(_ visible: Bool) {
+        guard visible else {
+            if chevron.superlayer != nil {
+                setExpanded(false, animated: false)
+                chevron.removeFromSuperlayer()
+            }
+            return
+        }
+        guard chevron.superlayer == nil, let layer else { return }
+        let scale = window?.backingScaleFactor ?? 2
+        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            .applying(.init(paletteColors: [.white]))
+        guard let glyph = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        chevron.bounds = CGRect(origin: .zero, size: glyph.size)
+        chevron.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        chevron.contentsScale = scale
+        chevron.contents = glyph.layerContents(forContentsScale: scale)
+        layer.addSublayer(chevron)
+    }
+
+    func setExpanded(_ value: Bool, animated: Bool = true) {
+        setAccessibilityExpanded(value)
+        guard value != expanded else { return }
+        expanded = value
+        let end = value ? CGFloat.pi : 0
+        let key = "transform.rotation.z"
+        let start = (chevron.presentation() ?? chevron).value(forKeyPath: key) as? CGFloat ?? 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        chevron.setValue(end, forKeyPath: key)
+        chevron.removeAnimation(forKey: key)
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let turn = CABasicAnimation(keyPath: key)
+            turn.fromValue = start < -CGFloat.pi + 0.001 ? CGFloat.pi : start
+            turn.toValue = end
+            turn.duration = 0.18
+            turn.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            chevron.add(turn, forKey: key)
+        }
+        CATransaction.commit()
+    }
+}
