@@ -3,7 +3,7 @@ import SwiftUI
 struct StatusIconGrid: View {
     let entries: [Extra]
     let open: (Extra) -> Void
-    @State private var hovered: Int?
+    let contextMenu: (Extra) -> NSMenu
 
     private let cell: CGFloat = 40
     private let spacing: CGFloat = 3
@@ -22,28 +22,9 @@ struct StatusIconGrid: View {
             ForEach(entries.indices,id:\.self) { index in
                 let entry = entries[index]
                 let name = entry.app.localizedName ?? entry.label
-                Button {
-                    open(entry)
-                } label: {
-                    Group {
-                        if let icon = entry.app.icon {
-                            Image(nsImage:icon).renderingMode(.original).resizable().scaledToFit()
-                        } else {
-                            Image(systemName:"app").resizable().scaledToFit()
-                        }
-                    }
-                    .frame(width:24,height:24)
-                    .frame(width:cell,height:cell)
-                    .background(MenuAppearance.selection(hovered == index))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(name))
-                .help(name)
-                .onHover { inside in
-                    if inside { hovered = index }
-                    else if hovered == index { hovered = nil }
-                }
+                StatusIconButton(entry: entry, name: name, open: { open(entry) },
+                                 contextMenu: { contextMenu(entry) })
+                    .frame(width: cell, height: cell)
             }
         }
         Group {
@@ -53,5 +34,46 @@ struct StatusIconGrid: View {
         .frame(width:size.width-16,height:size.height-16)
         .padding(8)
         .background(MenuAppearance.wash(MenuAppearance.sky))
+    }
+}
+
+private struct StatusIconButton: NSViewRepresentable {
+    let entry: Extra
+    let name: String
+    let open: () -> Void
+    let contextMenu: () -> NSMenu
+
+    final class Button: ShelfButton {
+        var onOpen: (() -> Void)?
+        var makeMenu: (() -> NSMenu)?
+        @objc func openIcon() { onOpen?() }
+        override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+        override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.control), let menu = makeMenu?() {
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> Button {
+        let button = Button(frame: .zero)
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.target = button
+        button.action = #selector(Button.openIcon)
+        return button
+    }
+
+    func updateNSView(_ button: Button, context: Context) {
+        let icon = (entry.app.icon?.copy() as? NSImage) ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)
+        icon?.size = NSSize(width: 24, height: 24)
+        button.image = icon
+        button.toolTip = name
+        button.setAccessibilityLabel(name)
+        button.onOpen = open
+        button.makeMenu = contextMenu
     }
 }

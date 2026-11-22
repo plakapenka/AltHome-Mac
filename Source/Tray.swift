@@ -479,11 +479,14 @@ final class Tray: NSObject {
     private func showApplicationGrid(_ entries: [Extra], above anchor: NSButton) {
         if dismissPopover(for:anchor) { return }
         let sorted = entries.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
-        let grid = StatusIconGrid(entries:sorted) { [weak self, weak anchor] entry in
+        let grid = StatusIconGrid(entries:sorted, open: { [weak self, weak anchor] entry in
             guard let self, let anchor else { return }
             self.popover?.performClose(nil)
             if !entry.app.isTerminated { self.showExtra(entry,above:anchor) }
-        }
+        }, contextMenu: { [weak self] entry in
+            guard let self else { return NSMenu() }
+            return self.statusContextMenu(entry) { [weak self] in self?.popover?.performClose(nil) }
+        })
         let panel = NSPopover()
         panel.animates = false
         panel.behavior = .transient

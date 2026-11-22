@@ -26,19 +26,22 @@ extension Tray {
         return visibleMenu(bar,depth:4)
     }
 
-    private func copyItems(_ source: AXUIElement, entry: Extra, path: [MenuStep]) -> NSMenu {
+    private func copyItems(_ source: AXUIElement, entry: Extra, path: [MenuStep], dismiss: @escaping () -> Void = {}) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for (i,item) in (attr(source,kAXChildrenAttribute) as? [AXUIElement] ?? []).enumerated() {
             let title = attr(item,kAXTitleAttribute) as? String ?? ""
             guard !title.isEmpty else { menu.addItem(.separator()); continue }
             let steps = path + [MenuStep(index:i,title:title)]
-            owner.add(menu,title) { [weak self] in self?.performCommand(steps,entry:entry) }
+            owner.add(menu,title) { [weak self] in
+                dismiss()
+                self?.performCommand(steps,entry:entry)
+            }
             guard let copy = menu.items.last else { continue }
             copy.isEnabled = attr(item,kAXEnabledAttribute) as? Bool ?? true
             if let mark = attr(item,kAXMenuItemMarkCharAttribute) as? String, !mark.isEmpty { copy.state = .on }
             if let sub = submenu(of:item), path.count < 5 {
-                copy.submenu = copyItems(sub,entry:entry,path:steps)
+                copy.submenu = copyItems(sub,entry:entry,path:steps,dismiss:dismiss)
             }
         }
         return menu
@@ -78,6 +81,40 @@ extension Tray {
                 || [kAXDescriptionAttribute,kAXTitleAttribute,kAXHelpAttribute].contains { attr(item,$0) as? String == entry.label }
         }
         return (match ?? (items.count == 1 ? items.first : nil)).flatMap { submenu(of:$0) }
+    }
+
+    func statusContextMenu(_ entry: Extra, dismiss: @escaping () -> Void) -> NSMenu {
+        guard !entry.app.isTerminated else {
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Приложение завершено", action: nil, keyEquivalent: "")
+            return menu
+        }
+        let menu = storedMenu(entry).map { copyItems($0, entry: entry, path: [], dismiss: dismiss) } ?? NSMenu()
+        if menu.items.isEmpty {
+            owner.add(menu, "Открыть меню значка", symbol: "menubar.rectangle") { [weak self] in
+                dismiss()
+                let result = AXUIElementPerformAction(entry.target, kAXShowMenuAction as CFString)
+                if result == .actionUnsupported || result == .notImplemented { self?.press(entry) }
+            }
+        }
+        menu.addItem(.separator())
+        if let url = entry.app.bundleURL {
+            if entry.app.activationPolicy == .regular {
+                owner.add(menu, "Открыть приложение", symbol: "macwindow") { [weak self] in
+                    dismiss()
+                    self?.owner.launch(Item(url))
+                }
+            }
+            owner.add(menu, "Показать в Finder", symbol: "folder") {
+                dismiss()
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
+        owner.add(menu, "Завершить приложение", symbol: "power") {
+            dismiss()
+            entry.app.terminate()
+        }
+        return menu
     }
 
     func showExtra(_ entry: Extra, above button: NSButton) {
