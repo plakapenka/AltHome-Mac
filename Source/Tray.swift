@@ -468,11 +468,12 @@ final class Tray: NSObject, NSPopoverDelegate {
             self?.openSettings(pane)
         }
         let card = NSHostingView(rootView:controls
-            .background(Color(nsColor:.windowBackgroundColor))
             .onGeometryChange(for:NSSize.self) { $0.size } action: { size in
                 presented?.fitContent(to:size)
             })
-        let panel = SlidingShelfPanel(title:page.rawValue,card:card,above:anchor,in:shelf,screen:screen)
+        let panel = SlidingShelfPanel(title:page.rawValue,card:card,above:anchor,in:shelf,screen:screen,
+                                      cornerRadius: page == .sound ? TrayControls.soundCornerRadius : 13)
+        if page == .sound { panel.appearance = nil }
         presented = panel
         slidingPanel = panel
         panel.showPanel()

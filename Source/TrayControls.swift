@@ -356,39 +356,72 @@ private struct SoundControls: View {
         device = ShelfAudio.current
         volume = ShelfAudio.volume(device)
     }
-    var body: some View {
-        VStack(alignment:.leading,spacing:10) {
-            HStack {
-                Image(systemName:indicator.symbol + ".fill").frame(width:22).foregroundStyle(.secondary)
-                Slider(value:Binding(get:{ Double(volume ?? 0) },set:{ value in
-                    if ShelfAudio.setVolume(Float(value),device:device) { volume = Float(value); message = "" }
-                    else { message = "Не удалось изменить громкость."; load() }
-                }),in:0...1).disabled(volume == nil).accessibilityLabel("Громкость")
-                if let volume { Text("\(Int((volume*100).rounded()))%").monospacedDigit().frame(width:36,alignment:.trailing) }
+    private var volumeBinding: Binding<Double> {
+        Binding(get: { Double(volume ?? 0) }, set: { value in
+            if ShelfAudio.setVolume(Float(value), device: device) {
+                volume = Float(value)
+                message = ""
+            } else {
+                message = "Не удалось изменить громкость."
+                load()
             }
-            Divider()
-            Text("Устройство вывода").font(.subheadline.weight(.semibold))
-            ScrollView {
-                VStack(spacing:2) {
-                    ForEach(devices) { output in
-                        Button {
-                            if !ShelfAudio.select(output.id) { message = "Не удалось переключить устройство." }
-                            else { message = "" }
-                            load()
-                        } label: {
-                            HStack {
-                                Image(systemName:"hifispeaker").frame(width:22)
-                                Text(output.name).lineLimit(1)
-                                Spacer()
-                                if output.id == device { Image(systemName:"checkmark").foregroundStyle(Color.accentColor) }
-                            }.padding(.vertical,6).contentShape(Rectangle())
-                        }.buttonStyle(MenuRowStyle(selected: output.id == device))
-                    }
+        })
+    }
+
+    private func deviceRow(_ output: AudioOutput) -> some View {
+        let selected = output.id == device
+        return Button {
+            message = ShelfAudio.select(output.id) ? "" : "Не удалось переключить устройство."
+            load()
+        } label: {
+            HStack(spacing: 10) {
+                Text(output.name).lineLimit(1).truncationMode(.middle)
+                    .fontWeight(selected ? .semibold : .regular)
+                Spacer(minLength: 6)
+                if selected {
+                    Image(systemName: "checkmark").font(.body.weight(.semibold))
+                        .foregroundStyle(Color.accentColor).accessibilityHidden(true)
                 }
-            }.frame(height:min(128,CGFloat(max(1,devices.count))*32))
-            if !message.isEmpty { Text(message).font(.caption) }
-        }.onAppear(perform:load)
-         .onReceive(Timer.publish(every:1,on:.main,in:.common).autoconnect()) { _ in load() }
+            }
+        }
+        .buttonStyle(MenuRowStyle(selected: selected))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .help(output.name)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: indicator.symbol + ".fill")
+                    .font(.system(size: 17, weight: .medium)).frame(width: 24)
+                    .accessibilityHidden(true)
+                Slider(value: volumeBinding, in: 0...1)
+                    .controlSize(.large).disabled(volume == nil)
+                    .accessibilityLabel("Громкость")
+                if let volume {
+                    Text(Double(volume), format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit().foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 8)
+            if !devices.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Устройство вывода").font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary).padding(.horizontal, 8)
+                    ScrollView {
+                        VStack(spacing: 2) {
+                            ForEach(devices) { output in deviceRow(output) }
+                        }
+                    }
+                    .frame(height: CGFloat(min(devices.count, 4)) * 34 - 2)
+                }
+            }
+            if !message.isEmpty { Text(message).font(.caption).padding(.horizontal, 8) }
+        }
+        .padding(.top, 8)
+        .onAppear(perform: load)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in load() }
     }
 }
 
@@ -399,7 +432,24 @@ struct TrayControls: View {
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openAirDrop: () -> Void
     let openSettings: (String)->Void
+    static let soundCornerRadius: CGFloat = 22
+
+    @ViewBuilder
+    private var surface: some View {
+        if initialPage == .sound {
+            let shape = RoundedRectangle(cornerRadius: Self.soundCornerRadius, style: .continuous)
+            if #available(macOS 26.0, *) {
+                Color.clear.glassEffect(.regular, in: shape)
+            } else {
+                shape.fill(.regularMaterial)
+            }
+        } else {
+            Color(nsColor: .windowBackgroundColor)
+        }
+    }
+
     var body: some View {
+        let insetSection = page != .wifi && page != .sound
         VStack(alignment: .leading, spacing: 0) {
             if initialPage == .wifi {
                 HStack(spacing: 4) {
@@ -440,11 +490,11 @@ struct TrayControls: View {
                 case .battery: BatteryControls(display: display)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(page == .wifi ? 0 : 12)
-                .background(Color.primary.opacity(page == .wifi ? 0 : 0.045), in: RoundedRectangle(cornerRadius: 10))
+                .padding(insetSection ? 12 : 0)
+                .background(Color.primary.opacity(insetSection ? 0.045 : 0), in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 10).padding(.vertical, 8)
 
-            Divider()
+            Divider().padding(.horizontal, page == .sound ? 16 : 0)
             Button { openSettings(page.settings) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")
@@ -452,7 +502,10 @@ struct TrayControls: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                 }.foregroundStyle(.secondary)
-            }.buttonStyle(MenuRowStyle()).padding(.horizontal, 7).padding(.vertical, 4)
-        }.frame(width: initialPage == .wifi ? 336 : 310).fixedSize(horizontal: false, vertical: true)
+            }.buttonStyle(MenuRowStyle()).padding(.horizontal, page == .sound ? 10 : 7).padding(.vertical, page == .sound ? 6 : 4)
+        }
+        .frame(width: initialPage == .wifi || initialPage == .sound ? 336 : 310)
+        .fixedSize(horizontal: false, vertical: true)
+        .background { surface }
     }
 }
