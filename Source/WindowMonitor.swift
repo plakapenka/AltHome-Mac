@@ -16,6 +16,7 @@ final class WindowMonitor {
     private var pending = false
     private var reading = false
     private var stopped = false
+    private var resizeCheck: DispatchWorkItem?
 
     init(app: NSRunningApplication, changed: @escaping ([WindowEntry]?) -> Void) {
         self.app = app
@@ -45,6 +46,7 @@ final class WindowMonitor {
 
     func stop() {
         stopped = true
+        resizeCheck?.cancel()
         queue.async {
             if let observer = self.observer {
                 self.observer = nil
@@ -60,9 +62,20 @@ final class WindowMonitor {
 
     private func attach() {
         var newObserver: AXObserver?
-        let callback: AXObserverCallback = { _, _, _, context in
+        let callback: AXObserverCallback = { _, _, event, context in
             guard let context else { return }
-            Unmanaged<WindowMonitor>.fromOpaque(context).takeUnretainedValue().request()
+            let monitor = Unmanaged<WindowMonitor>.fromOpaque(context).takeUnretainedValue()
+            if event as String == kAXWindowResizedNotification {
+                // A toolkit may report its final fullscreen state after the Space change.
+                // Read it once resizing settles, including when resizing with the mouse.
+                guard monitor.app.isActive else { return }
+                monitor.resizeCheck?.cancel()
+                let check = DispatchWorkItem { [weak monitor] in monitor?.request() }
+                monitor.resizeCheck = check
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: check)
+            } else {
+                monitor.request()
+            }
         }
         guard AXObserverCreate(app.processIdentifier, callback, &newObserver) == .success,
               let newObserver else { return }
@@ -93,7 +106,7 @@ final class WindowMonitor {
         }
         let current = Set(all)
         if let observer {
-            let events = [kAXUIElementDestroyedNotification, kAXTitleChangedNotification,
+            let events = [kAXUIElementDestroyedNotification, kAXTitleChangedNotification, kAXWindowResizedNotification,
                           kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification]
             for window in subscribed.subtracting(current) {
                 for event in events { AXObserverRemoveNotification(observer, window, event as CFString) }
@@ -106,16 +119,17 @@ final class WindowMonitor {
             }
         }
         let focused = element(root, kAXFocusedWindowAttribute)
-        let keys = [kAXRoleAttribute, kAXTitleAttribute, kAXMinimizedAttribute] as CFArray
+        let keys = [kAXRoleAttribute, kAXTitleAttribute, kAXMinimizedAttribute, "AXFullScreen"] as CFArray
         let entries: [WindowEntry] = all.compactMap { window in
             var data: CFArray?
             let result = AXUIElementCopyMultipleAttributeValues(window, keys, [], &data)
             if result == .cannotComplete { return lastEntries?.first { $0.window == window } }
             guard result == .success,
-                  let values = data as? [Any], values.count == 3,
+                  let values = data as? [Any], values.count == 4,
                   values[0] as? String == kAXWindowRole else { return nil }
             return WindowEntry(window: window, title: values[1] as? String ?? "",
-                               focused: focused == window && values[2] as? Bool != true)
+                               focused: focused == window && values[2] as? Bool != true,
+                               fullScreen: values[3] as? Bool == true)
         }
         lastEntries = entries
         return entries

@@ -76,6 +76,7 @@ struct WindowEntry: Equatable {
     let window: AXUIElement
     let title: String
     let focused: Bool
+    var fullScreen = false
 }
 struct TaskEntry {
     let id: TileID
@@ -396,6 +397,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var zoomMonitor: CFMachPort?
     var zoomCheck: DispatchWorkItem?
     var maximizedWindowCheck: DispatchWorkItem?
+    var exitingFullScreen = Set<AXUIElement>()
     var firstTitleClick: FirstTitleClick?
     var titleBarClick: FirstTitleClick?
     var chatTitleDrag: ChatTitleDrag?
@@ -587,8 +589,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 snapshots.removeValue(forKey: pid)
                 monitors[pid] = WindowMonitor(app: app) { [weak self] entries in
                     guard let self, !app.isTerminated, self.snapshots[pid] != entries else { return }
-                    let focused = entries?.first(where: { $0.focused })?.window
-                    if app.isActive, let focused, focused != self.snapshots[pid]?.first(where: { $0.focused })?.window {
+                    let previous = self.snapshots[pid]?.first(where: { $0.focused })
+                    if app.isActive, let focused = entries?.first(where: { $0.focused }),
+                       focused.window != previous?.window || focused.fullScreen != previous?.fullScreen {
                         self.scheduleMaximizedWindowFit()
                     }
                     self.snapshots[pid] = entries
@@ -860,10 +863,19 @@ final class Delegate: NSObject, NSApplicationDelegate {
             return r.isNull ? 0 : r.width*r.height
         }
         guard let screen = NSScreen.screens.max(by:{overlap($0)<overlap($1)}) else { return }
+        toggleFittedFrame(w, app: app, current: current, on: screen, reportFailure: true)
+    }
+
+    func toggleFittedFrame(_ w: AXUIElement, app: NSRunningApplication, current: CGRect, on screen: NSScreen, reportFailure: Bool) {
+        guard let primary = NSScreen.screens.first else { return }
         let saved = expanded.first { CFEqual(w,$0.1) }
         let restoring = saved.map { nearlyEqual($0.3,current) } ?? false
         let goal = restoring ? saved!.2 : accessibilityFrame(usableFrame(on:screen),primary:primary)
-        guard writeFrame(goal, to:w) else { _ = writeFrame(current, to:w); notify("Приложение ограничивает изменение размера этого окна."); return }
+        guard writeFrame(goal, to:w) else {
+            _ = writeFrame(current, to:w)
+            if reportFailure { notify("Приложение ограничивает изменение размера этого окна.") }
+            return
+        }
         expanded.removeAll { CFEqual(w,$0.1) }
         if !restoring, let actual = windowRect(w) { expanded.append((app.processIdentifier,w,current,actual)) }
     }

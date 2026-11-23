@@ -83,15 +83,60 @@ extension Delegate {
             let root = AXUIElementCreateApplication(app.processIdentifier)
             AXUIElementSetMessagingTimeout(root, 0.15)
             guard let window = element(root, kAXFocusedWindowAttribute),
-                  !minimized(window), attr(window, "AXFullScreen") as? Bool != true,
+                  !minimized(window), !self.exitingFullScreen.contains(window),
                   let frame = windowRect(window),
-                  accessibilityFrame(screen.frame, primary: primary).contains(CGPoint(x: frame.midX, y: frame.midY)),
-                  let fitted = shelfLimitedZoom(frame, visible: accessibilityFrame(screen.visibleFrame, primary: primary),
+                  accessibilityFrame(screen.frame, primary: primary).contains(CGPoint(x: frame.midX, y: frame.midY)) else { return }
+            if attr(window, "AXFullScreen") as? Bool == true {
+                // A full-screen window can exclude the camera housing at the top.
+                // Leave side-by-side Split View windows in their shared Space.
+                let display = accessibilityFrame(screen.frame, primary: primary)
+                if abs(frame.minX - display.minX) < 2, abs(frame.width - display.width) < 2,
+                   frame.maxY > accessibilityFrame(self.usableFrame(on: screen), primary: primary).maxY {
+                    self.fitAfterFullScreen(window, app: app, on: screen)
+                }
+                return
+            }
+            guard let fitted = shelfLimitedZoom(frame, visible: accessibilityFrame(screen.visibleFrame, primary: primary),
                                                 usable: accessibilityFrame(self.usableFrame(on: screen), primary: primary)) else { return }
             _ = self.resize(window, to: fitted.size)
         }
         maximizedWindowCheck = check
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: check)
+    }
+
+    private func fitAfterFullScreen(_ window: AXUIElement, app: NSRunningApplication, on screen: NSScreen) {
+        guard exitingFullScreen.insert(window).inserted else { return }
+        Task { @MainActor in
+            defer { exitingFullScreen.remove(window) }
+            let key = "AXFullScreen" as CFString
+            let result = AXUIElementSetAttributeValue(window, key, kCFBooleanFalse)
+            guard result == .success || result == .cannotComplete else { return }
+            // AppKit restores the window in its desktop Space asynchronously. Use that
+            // rectangle for the next toggle, never the screen-sized transition frame.
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            let root = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(root, 0.15)
+            var last: CGRect?
+            for attempt in 0..<18 {
+                guard !app.isTerminated, bar.screen == screen else { return }
+                let focused = app.isActive && element(root, kAXFocusedWindowAttribute) == window
+                let full = attr(window, "AXFullScreen") as? Bool
+                if attempt == 6, focused, full == true {
+                    // Some apps acknowledge the first request during entry but discard it.
+                    _ = AXUIElementSetAttributeValue(window, key, kCFBooleanFalse)
+                }
+                if focused, full == false, !minimized(window), let current = windowRect(window) {
+                    if current == last {
+                        toggleFittedFrame(window, app: app, current: current, on: screen, reportFailure: false)
+                        return
+                    }
+                    last = current
+                } else {
+                    last = nil
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
     }
 
     private func resize(_ window: AXUIElement, to size: CGSize) -> Bool {
