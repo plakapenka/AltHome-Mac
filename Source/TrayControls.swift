@@ -358,7 +358,7 @@ private struct SoundControls: View {
     }
     private var volumeBinding: Binding<Double> {
         Binding(get: { Double(volume ?? 0) }, set: { value in
-            if ShelfAudio.setVolume(Float(value), device: device) {
+            if indicator.setVolume(Float(value), device: device) {
                 volume = Float(value)
                 message = ""
             } else {

@@ -64,18 +64,26 @@ enum ShelfAudio {
         return "speaker.wave.3"
     }
 
-    static func speakerSymbol(for device: AudioDeviceID) -> String {
+    private static func isMuted(_ device: AudioDeviceID) -> Bool {
         var muteKey = address(kAudioDevicePropertyMute, output: true)
         var muted: UInt32 = 0, size = UInt32(MemoryLayout<UInt32>.size)
-        let hasMute = AudioObjectGetPropertyData(device, &muteKey, 0, nil, &size, &muted) == noErr
+        return AudioObjectGetPropertyData(device, &muteKey, 0, nil, &size, &muted) == noErr && muted != 0
+    }
+
+    static func speakerSymbol(for device: AudioDeviceID) -> String {
         let volume = readVolume(device, key: address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, output: true))
             ?? readVolume(device, key: address(kAudioDevicePropertyVolumeScalar, output: true))
-        return speakerSymbol(volume: volume, muted: hasMute && muted != 0)
+        return speakerSymbol(volume: volume, muted: isMuted(device))
     }
 
     static func setVolume(_ value: Float, device: AudioDeviceID) -> Bool {
         var key = address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume,output:true), level = value
-        return AudioObjectSetPropertyData(device,&key,0,nil,UInt32(MemoryLayout.size(ofValue:level)),&level) == noErr
+        guard AudioObjectSetPropertyData(device, &key, 0, nil, UInt32(MemoryLayout.size(ofValue: level)), &level) == noErr else { return false }
+        // Volume and mute are independent. Set the requested level before making the output audible.
+        guard value > 0, isMuted(device) else { return true }
+        var muteKey = address(kAudioDevicePropertyMute, output: true)
+        var unmuted: UInt32 = 0
+        return AudioObjectSetPropertyData(device, &muteKey, 0, nil, UInt32(MemoryLayout.size(ofValue: unmuted)), &unmuted) == noErr
     }
 }
 
@@ -92,6 +100,12 @@ final class OutputVolumeIndicator: ObservableObject {
         var key = ShelfAudio.address(kAudioHardwarePropertyDefaultOutputDevice)
         AudioObjectAddPropertyListenerBlock(ShelfAudio.system, &key, .main, changed)
         refresh()
+    }
+
+    func setVolume(_ value: Float, device: AudioDeviceID) -> Bool {
+        let success = ShelfAudio.setVolume(value, device: device)
+        refresh()
+        return success
     }
 
     private func refresh() {
