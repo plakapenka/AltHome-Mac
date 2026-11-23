@@ -15,7 +15,7 @@ enum TrayPage: String {
         case .wifi: return "Настройки Wi-Fi…"
         case .sound: return "Настройки звука…"
         case .bluetooth: return "Настройки Bluetooth…"
-        case .battery: return "Настройки аккумулятора…"
+        case .battery: return "Настройки аккумулятора"
         }
     }
     var settings: String {
@@ -502,7 +502,9 @@ struct TrayControls: View {
                     Image(systemName: "gearshape")
                     Text(page.settingsTitle)
                     Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    if page != .battery {
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    }
                 }.foregroundStyle(.secondary)
             }.buttonStyle(MenuRowStyle()).padding(.horizontal, page.usesGlassPanel ? 10 : 7).padding(.vertical, page.usesGlassPanel ? 6 : 4)
         }
