@@ -413,7 +413,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         bar.backgroundColor = NSColor(srgbRed:0.115,green:0.12,blue:0.13,alpha:1)
         bar.level = .floating
         bar.hidesOnDeactivate = false
-        bar.collectionBehavior = [.canJoinAllSpaces,.ignoresCycle,.fullScreenNone]
+        bar.collectionBehavior = [.canJoinAllSpaces,.ignoresCycle,.fullScreenAuxiliary, .canJoinAllApplications]
         bar.appearance = NSAppearance(named:.darkAqua)
         let glass = ShelfBackground()
         glass.makeMenu = { [weak self] in self?.panelMenu() }

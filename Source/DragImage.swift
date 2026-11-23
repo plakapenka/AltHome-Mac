@@ -27,7 +27,7 @@ final class DragImage {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.level = NSWindow.Level(rawValue: window.level.rawValue + 1)
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .canJoinAllApplications, .ignoresCycle]
         let picture = NSImageView(frame: NSRect(origin: .zero, size: rect.size))
         if let backgroundColor {
             picture.wantsLayer = true

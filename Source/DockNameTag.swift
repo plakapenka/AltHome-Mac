@@ -16,7 +16,7 @@ final class DockNameTag: NSPanel {
         ignoresMouseEvents = true
         hidesOnDeactivate = false
         animationBehavior = .none
-        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .canJoinAllApplications, .ignoresCycle]
         let material = NSVisualEffectView()
         material.material = .popover
         material.state = .active

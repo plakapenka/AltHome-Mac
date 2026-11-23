@@ -61,7 +61,7 @@ final class SlidingShelfPanel: NSPanel {
         hasShadow = true
         hidesOnDeactivate = false
         level = shelf.level
-        collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary]
+        collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary, .canJoinAllApplications]
         // The stationary viewport clips the moving card exactly above the shelf.
         let viewport = NSView(frame:NSRect(origin:.zero,size:size))
         viewport.wantsLayer = true

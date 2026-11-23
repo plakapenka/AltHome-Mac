@@ -63,7 +63,7 @@ final class WindowPreview {
         panel.title = "Предпросмотр окна"
         panel.hidesOnDeactivate = false
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces,.fullScreenNone,.ignoresCycle]
+        panel.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary, .canJoinAllApplications,.ignoresCycle]
         panel.appearance = NSAppearance(named:.darkAqua)
         let body = NSView(frame:panel.contentRect(forFrameRect:panel.frame))
         body.wantsLayer = true
