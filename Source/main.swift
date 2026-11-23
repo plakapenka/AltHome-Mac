@@ -395,7 +395,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var expanded: [(pid_t, AXUIElement, CGRect, CGRect)] = []
     var zoomMonitor: CFMachPort?
     var zoomCheck: DispatchWorkItem?
-    var titleBarClick: TitleBarClick?
+    var maximizedWindowCheck: DispatchWorkItem?
+    var firstTitleClick: FirstTitleClick?
+    var titleBarClick: FirstTitleClick?
     var chatTitleDrag: ChatTitleDrag?
     var timer: Timer?
     let timeFormatter = DateFormatter()
@@ -454,9 +456,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
             nc.addObserver(self, selector:#selector(workspaceChanged(_:)), name:name, object:nil)
         }
-        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
-            nc.addObserver(self,selector:#selector(refresh),name:name,object:nil)
-        }
+        nc.addObserver(self, selector:#selector(activeSpaceChanged), name:NSWorkspace.activeSpaceDidChangeNotification, object:nil)
+        nc.addObserver(self, selector:#selector(refresh), name:NSWorkspace.didWakeNotification, object:nil)
         NotificationCenter.default.addObserver(self, selector:#selector(refresh),name:NSApplication.didChangeScreenParametersNotification,object:nil)
         timer = Timer.scheduledTimer(timeInterval:2,target:self,selector:#selector(maintenance),userInfo:nil,repeats:true)
         timer?.tolerance = 0.4
@@ -547,7 +548,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
     @objc private func workspaceChanged(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { refresh(); return }
         syncWindows(changedPID: app.processIdentifier)
+        if note.name == NSWorkspace.didActivateApplicationNotification { scheduleMaximizedWindowFit() }
         renderTasks()
+    }
+
+    @objc private func activeSpaceChanged() {
+        refresh()
+        scheduleMaximizedWindowFit()
     }
 
     @objc func refresh() {
@@ -580,6 +587,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 snapshots.removeValue(forKey: pid)
                 monitors[pid] = WindowMonitor(app: app) { [weak self] entries in
                     guard let self, !app.isTerminated, self.snapshots[pid] != entries else { return }
+                    let focused = entries?.first(where: { $0.focused })?.window
+                    if app.isActive, let focused, focused != self.snapshots[pid]?.first(where: { $0.focused })?.window {
+                        self.scheduleMaximizedWindowFit()
+                    }
                     self.snapshots[pid] = entries
                     self.scheduleTaskRender()
                 }

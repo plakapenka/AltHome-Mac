@@ -12,11 +12,14 @@ func nearlyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
 }
 
 // Match the result of a native zoom, including vertical-only zoom and macOS tiling margins.
-func shelfLimitedZoom(_ frame: CGRect, before: CGRect, visible: CGRect, usable: CGRect) -> CGRect? {
-    guard !nearlyEqual(frame, before), usable.maxY < visible.maxY,
-          frame.minY >= visible.minY - 24, frame.minY <= visible.minY + 24,
-          frame.maxY >= visible.maxY - 24, frame.maxY > usable.maxY,
+func shelfLimitedZoom(_ frame: CGRect, visible: CGRect, usable: CGRect) -> CGRect? {
+    guard usable.maxY < visible.maxY, abs(frame.minY - visible.minY) <= 24,
           frame.intersects(usable), frame.minY < usable.maxY else { return nil }
+    let coversShelf = frame.maxY >= visible.maxY - 24 && frame.maxY > usable.maxY
+    // Earlier versions left two points under a maximized window.
+    let gap = usable.maxY - frame.maxY
+    let oldInset = gap > 0 && gap <= 2 && abs(frame.minX - usable.minX) < 2 && abs(frame.width - usable.width) < 2
+    guard coversShelf || oldInset else { return nil }
     return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: usable.maxY - frame.minY)
 }
 
@@ -25,6 +28,30 @@ struct TitleBarClick {
     let app: NSRunningApplication
     let point: CGPoint
     let frame: CGRect
+}
+
+// A custom title bar can finish zooming before the second click's AX query returns.
+struct FirstTitleClick {
+    let point: CGPoint
+    let pid: pid_t
+    let number: CGWindowID
+    let frame: CGRect
+
+    init?(at point: CGPoint) {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], 0) as? [[String: Any]] else { return nil }
+        for window in windows where window[kCGWindowLayer as String] as? Int == 0 {
+            guard let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds), rect.contains(point) else { continue }
+            guard let owner = window[kCGWindowOwnerPID as String] as? pid_t,
+                  let id = window[kCGWindowNumber as String] as? CGWindowID else { return nil }
+            self.point = point
+            pid = owner
+            number = id
+            frame = rect
+            return
+        }
+        return nil
+    }
 }
 
 struct ChatTitleDrag {
@@ -45,6 +72,34 @@ extension Delegate {
         return frame
     }
 
+    // Space transitions and reopened maximized windows can arrive without a double-click.
+    func scheduleMaximizedWindowFit() {
+        maximizedWindowCheck?.cancel()
+        guard !CommandLine.arguments.contains("--ui-check"), AXIsProcessTrusted(),
+              let app = ws.frontmostApplication, app.activationPolicy == .regular else { return }
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, app.isActive, NSEvent.pressedMouseButtons == 0,
+                  let primary = NSScreen.screens.first, let screen = self.bar.screen else { return }
+            let root = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(root, 0.15)
+            guard let window = element(root, kAXFocusedWindowAttribute),
+                  !minimized(window), attr(window, "AXFullScreen") as? Bool != true,
+                  let frame = windowRect(window),
+                  accessibilityFrame(screen.frame, primary: primary).contains(CGPoint(x: frame.midX, y: frame.midY)),
+                  let fitted = shelfLimitedZoom(frame, visible: accessibilityFrame(screen.visibleFrame, primary: primary),
+                                                usable: accessibilityFrame(self.usableFrame(on: screen), primary: primary)) else { return }
+            _ = self.resize(window, to: fitted.size)
+        }
+        maximizedWindowCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: check)
+    }
+
+    private func resize(_ window: AXUIElement, to size: CGSize) -> Bool {
+        var size = size
+        guard let value = AXValueCreate(.cgSize, &size) else { return false }
+        return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value) == .success
+    }
+
     func monitorTitleBarZoom() {
         guard zoomMonitor == nil, AXIsProcessTrusted() else { return }
         let mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.leftMouseUp.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue)
@@ -53,6 +108,7 @@ extension Delegate {
             let owner = Unmanaged<Delegate>.fromOpaque(context).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 owner.zoomCheck?.cancel()
+                owner.firstTitleClick = nil
                 owner.titleBarClick = nil
                 owner.chatTitleDrag = nil
                 if let tap = owner.zoomMonitor { CGEvent.tapEnable(tap:tap,enable:true) }
@@ -76,26 +132,43 @@ extension Delegate {
             chatTitleDrag = nil
             guard event.flags.intersection([.maskCommand,.maskAlternate,.maskControl,.maskShift]).isEmpty else { return }
             let count = event.getIntegerValueField(.mouseEventClickState)
+            if count == 1 { firstTitleClick = FirstTitleClick(at: event.location) }
             if count == 1, ws.frontmostApplication?.bundleIdentifier == "com.openai.codex",
                let click = chatDragTarget(at:event.location) {
                 chatTitleDrag = ChatTitleDrag(click:click,started:ProcessInfo.processInfo.systemUptime)
             }
-            if count == 2, let app = ws.frontmostApplication, app != .current {
-                let root = AXUIElementCreateApplication(app.processIdentifier)
-                AXUIElementSetMessagingTimeout(root, 0.12)
-                if let window = element(root, kAXFocusedWindowAttribute), let frame = windowRect(window),
-                   frame.contains(event.location) {
-                    titleBarClick = TitleBarClick(window: window, app: app, point: event.location, frame: frame)
+            if count == 2 {
+                maximizedWindowCheck?.cancel()
+                if let first = firstTitleClick, hypot(event.location.x-first.point.x, event.location.y-first.point.y) <= 4 {
+                    titleBarClick = first
                 }
+                firstTitleClick = nil
             }
         } else if chatTitleDrag != nil {
             updateChatDrag(at:event.location, ending:type == .leftMouseUp)
         } else if type == .leftMouseUp, let click = titleBarClick {
             titleBarClick = nil
             if hypot(event.location.x-click.point.x, event.location.y-click.point.y) <= 4 {
-                checkNativeZoom(click, attempt: 0)
+                resolveZoomWindow(click, attempt: 0)
             }
         }
+    }
+
+    private func resolveZoomWindow(_ first: FirstTitleClick, attempt: Int) {
+        // Query AX after releasing the mouse event: some toolkits can't answer during native zoom.
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, let app = NSRunningApplication(processIdentifier: first.pid), !app.isTerminated else { return }
+            let root = AXUIElementCreateApplication(first.pid)
+            AXUIElementSetMessagingTimeout(root, 0.15)
+            if app.isActive, let window = element(root, kAXFocusedWindowAttribute) {
+                if let id = attr(window, "AXWindowNumber") as? CGWindowID, id != first.number { return }
+                self.checkNativeZoom(TitleBarClick(window: window, app: app, point: first.point, frame: first.frame), attempt: 0)
+            } else if attempt < 6 {
+                self.resolveZoomWindow(first, attempt: attempt + 1)
+            }
+        }
+        zoomCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 0.1), execute: check)
     }
 
     private func checkNativeZoom(_ click: TitleBarClick, attempt: Int, lastFrame: CGRect? = nil) {
@@ -104,8 +177,12 @@ extension Delegate {
                   let primary = NSScreen.screens.first,
                   let screen = NSScreen.screens.first(where: { accessibilityFrame($0.frame, primary: primary).contains(click.point) }),
                   screen.frame.intersects(self.bar.frame),
-                  let frame = windowRect(click.window), !minimized(click.window),
+                  !minimized(click.window),
                   attr(click.window, "AXFullScreen") as? Bool != true else { return }
+            guard let frame = windowRect(click.window) else {
+                if attempt < 12 { self.checkNativeZoom(click, attempt: attempt + 1) }
+                return
+            }
             let visible = accessibilityFrame(screen.visibleFrame, primary: primary)
             let usable = accessibilityFrame(self.usableFrame(on: screen), primary: primary)
             let previous = self.expanded.first { CFEqual($0.1, click.window) && nearlyEqual($0.3, click.frame) }
@@ -114,12 +191,20 @@ extension Delegate {
                 return
             }
             // Writing an intermediate animation frame lets the app overwrite our adjustment.
-            if frame == lastFrame, let fitted = shelfLimitedZoom(frame, before: click.frame, visible: visible, usable: usable) {
-                self.applyZoomBounds(previous?.2 ?? fitted, native: frame, click: click,
-                                     restoring: previous != nil, retries: 4)
-            } else if attempt < 12 {
-                self.checkNativeZoom(click, attempt: attempt + 1, lastFrame: frame)
+            if frame == lastFrame, let fitted = shelfLimitedZoom(frame, visible: visible, usable: usable) {
+                if !nearlyEqual(frame, click.frame) {
+                    self.applyZoomBounds(previous?.2 ?? fitted, native: frame, click: click,
+                                         restoring: previous != nil, retries: 4)
+                    return
+                }
+                // A custom title bar may have already zoomed by the time AX reports the first frame.
+                // There is no original size to save in that case.
+                if attempt >= 3, click.point.y - frame.minY < 36 {
+                    _ = self.resize(click.window, to: fitted.size)
+                    return
+                }
             }
+            if attempt < 12 { self.checkNativeZoom(click, attempt: attempt + 1, lastFrame: frame) }
         }
         zoomCheck = check
         DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0.035 : 0.1), execute: check)
@@ -128,9 +213,7 @@ extension Delegate {
     private func applyZoomBounds(_ goal: CGRect, native: CGRect, click: TitleBarClick, restoring: Bool, retries: Int) {
         if goal.origin == native.origin {
             // Moving an already tiled window can restart the system zoom animation.
-            var size = goal.size
-            guard let value = AXValueCreate(.cgSize, &size),
-                  AXUIElementSetAttributeValue(click.window, kAXSizeAttribute as CFString, value) == .success else { return }
+            guard resize(click.window, to: goal.size) else { return }
         } else if !writeFrame(goal, to: click.window) { return }
         expanded.removeAll { CFEqual($0.1, click.window) }
         if !restoring { expanded.append((click.app.processIdentifier, click.window, click.frame, goal)) }
