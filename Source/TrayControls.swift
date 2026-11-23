@@ -6,6 +6,9 @@ import IOBluetooth
 
 enum TrayPage: String {
     case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", airDrop = "AirDrop", battery = "Аккумулятор"
+    var usesGlassPanel: Bool { self == .sound || self == .battery }
+    var cornerRadius: CGFloat { usesGlassPanel ? 22 : 13 }
+
     var settingsTitle: String {
         switch self {
         case .airDrop: return "Настройки AirDrop…"
@@ -432,12 +435,11 @@ struct TrayControls: View {
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openAirDrop: () -> Void
     let openSettings: (String)->Void
-    static let soundCornerRadius: CGFloat = 22
 
     @ViewBuilder
     private var surface: some View {
-        if initialPage == .sound {
-            let shape = RoundedRectangle(cornerRadius: Self.soundCornerRadius, style: .continuous)
+        if initialPage.usesGlassPanel {
+            let shape = RoundedRectangle(cornerRadius: initialPage.cornerRadius, style: .continuous)
             if #available(macOS 26.0, *) {
                 Color.clear.glassEffect(.regular, in: shape)
             } else {
@@ -449,7 +451,7 @@ struct TrayControls: View {
     }
 
     var body: some View {
-        let insetSection = page != .wifi && page != .sound
+        let insetSection = page != .wifi && !page.usesGlassPanel
         VStack(alignment: .leading, spacing: 0) {
             if initialPage == .wifi {
                 HStack(spacing: 4) {
@@ -494,7 +496,7 @@ struct TrayControls: View {
                 .background(Color.primary.opacity(insetSection ? 0.045 : 0), in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 10).padding(.vertical, 8)
 
-            Divider().padding(.horizontal, page == .sound ? 16 : 0)
+            Divider().padding(.horizontal, page.usesGlassPanel ? 16 : 0)
             Button { openSettings(page.settings) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")
@@ -502,9 +504,9 @@ struct TrayControls: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                 }.foregroundStyle(.secondary)
-            }.buttonStyle(MenuRowStyle()).padding(.horizontal, page == .sound ? 10 : 7).padding(.vertical, page == .sound ? 6 : 4)
+            }.buttonStyle(MenuRowStyle()).padding(.horizontal, page.usesGlassPanel ? 10 : 7).padding(.vertical, page.usesGlassPanel ? 6 : 4)
         }
-        .frame(width: initialPage == .wifi || initialPage == .sound ? 336 : 310)
+        .frame(width: initialPage == .wifi || initialPage.usesGlassPanel ? 336 : 310)
         .fixedSize(horizontal: false, vertical: true)
         .background { surface }
     }

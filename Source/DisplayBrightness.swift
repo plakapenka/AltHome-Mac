@@ -47,6 +47,7 @@ struct BrightnessControl: View {
                 failed = !DisplayBrightness.set(value, on: display)
                 level = failed ? DisplayBrightness.level(on: display) : value
             }), in: 0...1, onEditingChanged: { editing = $0 })
+                .controlSize(.large)
                 .disabled(level == nil)
                 .accessibilityLabel("Яркость экрана")
             if level == nil || failed {

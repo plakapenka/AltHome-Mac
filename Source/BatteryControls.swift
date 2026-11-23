@@ -79,29 +79,31 @@ struct BatteryControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let status {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(status.fraction, format: .percent.precision(.fractionLength(0)))
-                        .font(.system(size: 26, weight: .semibold)).monospacedDigit()
-                    Spacer()
-                    Text(status.onACPower ? "Питание от сети" : "От аккумулятора")
-                        .font(.callout).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(status.fraction, format: .percent.precision(.fractionLength(0)))
+                            .font(.system(size: 28, weight: .semibold)).monospacedDigit()
+                        Spacer()
+                        Text(status.onACPower ? "Питание от сети" : "От аккумулятора")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    ProgressView(value: status.fraction)
+                        .tint(energySaving ? .yellow : .green)
+                        .accessibilityHidden(true)
                 }
-                ProgressView(value: status.fraction).tint(energySaving ? .yellow : .green)
                 Divider()
                 BrightnessControl(display: display)
-                Divider()
-                HStack {
+                Toggle(isOn: Binding(
+                    get: { energySaving },
+                    set: { control.set($0, onAC: status.onACPower) }
+                )) {
                     Label("Энергосбережение", systemImage: "leaf")
-                    Spacer()
-                    Toggle("Энергосбережение", isOn: Binding(
-                        get: { energySaving },
-                        set: { control.set($0, onAC: status.onACPower) }
-                    ))
-                    .labelsHidden().accessibilityLabel("Энергосбережение")
-                    .toggleStyle(.switch).tint(.green)
-                    .environment(\.controlActiveState, .active)
-                    .disabled(control.changing)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .toggleStyle(.switch).tint(.green)
+                .environment(\.controlActiveState, .active)
+                .disabled(control.changing)
                 if let message = control.message {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
@@ -109,6 +111,9 @@ struct BatteryControls: View {
                 Text("Нет данных об аккумуляторе").foregroundStyle(.secondary)
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in refresh() }
     }
