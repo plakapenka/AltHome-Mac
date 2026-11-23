@@ -34,6 +34,9 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
     var result: [Extra] = []
     func collect(_ item: AXUIElement, depth: Int) {
         guard depth <= 4, let role = attr(item,kAXRoleAttribute) as? String else { return }
+        // MenuBarAgent can embed the owner’s entire AXApplication in another status host.
+        // Its windows and main menu are outside the status item.
+        guard role != kAXApplicationRole, depth == 0 || role != kAXWindowRole else { return }
         if role == kAXMenuBarItemRole || role == kAXButtonRole {
             var pid: pid_t = 0
             _ = AXUIElementGetPid(item,&pid)
