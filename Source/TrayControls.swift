@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import CoreLocation
 import CoreWLAN
 import CoreBluetooth
@@ -77,11 +78,12 @@ private final class WiFiLocationAccess: NSObject, ObservableObject, CLLocationMa
 }
 
 private struct WiFiControls: View {
+    let updates: AnyPublisher<WiFiStatus, Never>
     let openSettings: (String) -> Void
     @ObservedObject private var access = WiFiLocationAccess.shared
-    @State private var power = false
+    @State private var connection = WiFiStatus.off
     @State private var connected: String?
-    @State private var associated = false
+    private var power: Bool { connection != .off }
     @State private var networks: [NetworkChoice] = []
     @State private var scanID: UUID?
     @State private var connecting = false
@@ -91,10 +93,13 @@ private struct WiFiControls: View {
     @State private var password = ""
     private var interface: CWInterface? { CWWiFiClient.shared().interface() }
 
+    private func updateConnection(_ status: WiFiStatus) {
+        connection = status
+        connected = status.associated ? interface?.ssid() : nil
+    }
+
     private func load() {
-        power = interface?.powerOn() == true
-        connected = interface?.ssid()
-        associated = power && (connected != nil || (interface?.transmitRate() ?? 0) > 0)
+        updateConnection(.current(interface))
         if !power || access.status != .authorizedAlways {
             networks = []
             selected = nil
@@ -159,16 +164,16 @@ private struct WiFiControls: View {
 
     private var connectionSummary: some View {
         HStack(spacing: 11) {
-            Image(systemName: power ? "wifi" : "wifi.slash")
+            Image(systemName: connection.symbol, variableValue: connection.value)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(associated ? Color.white : .secondary)
+                .foregroundStyle(connection.associated ? Color.white : .secondary)
                 .frame(width: 36, height: 36)
-                .background(associated ? Color.blue : Color.primary.opacity(0.08), in: Circle())
+                .background(connection.associated ? Color.blue : Color.primary.opacity(0.08), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(connected ?? "Wi-Fi")
                     .font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                Text(associated ? "Подключено" : (power ? "Нет подключения" : "Выключено"))
+                Text(connection.description)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 6)
@@ -178,14 +183,13 @@ private struct WiFiControls: View {
         .padding(12)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(LinearGradient(colors: [Color.blue.opacity(associated ? 0.18 : 0.04), Color.primary.opacity(0.045)],
+                .fill(LinearGradient(colors: [Color.blue.opacity(connection.associated ? 0.18 : 0.04), Color.primary.opacity(0.045)],
                                      startPoint: .leading, endPoint: .trailing))
         }
     }
 
     private func networkRow(_ choice: NetworkChoice) -> some View {
-        let strength = choice.network.rssiValue
-        let signal = strength >= -60 ? 1.0 : (strength >= -75 ? 0.66 : 0.33)
+        let signal = WiFiStatus.Signal(rssi: choice.network.rssiValue).value
         let secured = !choice.network.supportsSecurity(.none)
         return Button {
             selected = choice
@@ -271,6 +275,7 @@ private struct WiFiControls: View {
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10) }
         }
         .onAppear { load(); scan() }
+        .onReceive(updates, perform: updateConnection)
         .onChange(of: access.status) { _ in load(); scan() }
         .onDisappear { scanID = nil }
     }
@@ -431,6 +436,7 @@ private struct SoundControls: View {
 struct TrayControls: View {
     let display: CGDirectDisplayID
     let initialPage: TrayPage
+    let wifiUpdates: AnyPublisher<WiFiStatus, Never>
     @State private var wirelessPage: TrayPage = .wifi
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openAirDrop: () -> Void
@@ -473,7 +479,7 @@ struct TrayControls: View {
 
             Group {
                 switch page {
-                case .wifi: WiFiControls(openSettings: openSettings)
+                case .wifi: WiFiControls(updates: wifiUpdates, openSettings: openSettings)
                 case .airDrop:
                     Button(action: openAirDrop) {
                         HStack(spacing: 10) {

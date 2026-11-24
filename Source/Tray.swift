@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 import Carbon
-import CoreWLAN
 
 private func sourceString(_ source: TISInputSource, _ key: CFString) -> String? {
     guard let p = TISGetInputSourceProperty(source,key) else { return nil }
@@ -470,7 +469,7 @@ final class Tray: NSObject, NSPopoverDelegate {
         guard let shelf = anchor.window as? Bar, let screen = shelf.screen else { return }
         weak var presented: SlidingShelfPanel?
         let display = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
-        let controls = TrayControls(display:display, initialPage:page, openAirDrop: { [weak self] in
+        let controls = TrayControls(display:display, initialPage:page, wifiUpdates: wifiUpdates.eraseToAnyPublisher(), openAirDrop: { [weak self] in
             presented?.dismiss()
             guard let self else { return }
             guard let finder = self.owner.ws.urlForApplication(withBundleIdentifier: "com.apple.finder") else {
@@ -530,12 +529,19 @@ final class Tray: NSObject, NSPopoverDelegate {
     }
     private struct Status: Equatable {
         let language = inputCode()
-        let wifi = CWWiFiClient.shared().interface()?.powerOn()
+        let wifi = WiFiStatus.current()
         let battery = BatteryStatus.current()
     }
     private var volumeChanges: AnyCancellable?
     private var lastStatus: Status?
-    func statusChanged() -> Bool { Status() != lastStatus }
+    private let wifiUpdates = PassthroughSubject<WiFiStatus, Never>()
+    func statusChanged() -> Bool {
+        let status = Status()
+        if let panel = slidingPanel, panel.isVisible, !panel.isClosing, panel.title == TrayPage.wifi.rawValue {
+            wifiUpdates.send(status.wifi)
+        }
+        return status != lastStatus
+    }
     func refreshVisibleDock() { dockMirror.refresh() }
     func layout(_ width:CGFloat) -> CGFloat {
         let status = Status()
@@ -558,7 +564,9 @@ final class Tray: NSObject, NSPopoverDelegate {
             self.popover?.performClose(nil)
             self.inputs(button)
         }))
-        system(.wifi,"Wi-Fi",status.wifi == false ? "wifi.slash" : "wifi")
+        controls.append(("Wi-Fi · " + status.wifi.description, nil, nil, status.wifi.trayIcon, { button in
+            self.showControls(.wifi, above: button)
+        }))
         system(.sound,"Звук",OutputVolumeIndicator.shared.symbol)
         if let battery = status.battery {
             controls.append(("Аккумулятор · " + battery.description, nil, nil, battery.trayIcon, { button in

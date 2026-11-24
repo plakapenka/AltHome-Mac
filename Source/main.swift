@@ -480,7 +480,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       let firstControl = self.tray.buttons.first,
                       self.scroll.frame.maxX <= firstControl.frame.minX,
                       !firstControl.title.isEmpty,
-                      self.tray.buttons.contains(where: { $0.toolTip == "Wi-Fi" && $0.image != nil }),
+                      self.tray.buttons.contains(where: { $0.toolTip?.hasPrefix("Wi-Fi · ") == true && $0.image != nil }),
                       self.bar.contentView?.layer?.cornerRadius == 0
                 else { exit(9) }
                 print("PASS: Apple menu, input source, Wi-Fi, square panel, separate task and tray areas")
