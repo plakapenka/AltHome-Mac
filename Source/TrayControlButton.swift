@@ -5,7 +5,9 @@ final class TrayControlButton: ShelfButton {
     private let chevron = CALayer()
     private var expanded = false
 
-    func setDisclosureVisible(_ visible: Bool) {
+    private var symbolName: String?
+
+    func setDisclosureVisible(_ visible: Bool, symbol: String) {
         guard visible else {
             if chevron.superlayer != nil {
                 setExpanded(false, animated: false)
@@ -13,11 +15,12 @@ final class TrayControlButton: ShelfButton {
             }
             return
         }
-        guard chevron.superlayer == nil, let layer else { return }
+        guard chevron.superlayer == nil || symbolName != symbol, let layer else { return }
+        symbolName = symbol
         let scale = window?.backingScaleFactor ?? 2
         let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
             .applying(.init(paletteColors: [.white]))
-        guard let glyph = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: nil)?
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(configuration) else { return }
         chevron.bounds = CGRect(origin: .zero, size: glyph.size)
         chevron.position = CGPoint(x: bounds.midX, y: bounds.midY)

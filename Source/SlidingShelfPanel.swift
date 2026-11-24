@@ -32,6 +32,7 @@ final class OutsideClickMonitor {
 }
 
 final class SlidingShelfPanel: NSPanel {
+    let edge: ShelfEdge
     private let outside = OutsideClickMonitor()
     private let card: NSView
     private let onShow: ((NSWindow) -> Void)?
@@ -41,8 +42,9 @@ final class SlidingShelfPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    init(title: String, card: NSView, above anchor: NSButton, in shelf: NSWindow, screen: NSScreen,
+    init(title: String, card: NSView, beside anchor: NSButton, in shelf: Bar, screen: NSScreen,
          cornerRadius: CGFloat = 13, onShow: ((NSWindow) -> Void)? = nil) {
+        edge = shelf.edge
         self.anchor = anchor
         self.card = card
         self.onShow = onShow
@@ -50,7 +52,7 @@ final class SlidingShelfPanel: NSPanel {
         let bounds = screen.visibleFrame
         let button = shelf.convertToScreen(anchor.convert(anchor.bounds,to:nil))
         let x = min(max(bounds.minX+8,button.midX-size.width/2),bounds.maxX-size.width-8)
-        let rect = NSRect(origin:NSPoint(x:x,y:shelf.frame.maxY+6),size:size)
+        let rect = NSRect(origin:NSPoint(x:x,y:edge.popupY(beside: shelf.frame, height: size.height)),size:size)
         super.init(contentRect:rect,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         isReleasedWhenClosed = false
         animationBehavior = .none
@@ -62,7 +64,7 @@ final class SlidingShelfPanel: NSPanel {
         hidesOnDeactivate = false
         level = shelf.level
         collectionBehavior = [.moveToActiveSpace,.fullScreenAuxiliary, .canJoinAllApplications]
-        // The stationary viewport clips the moving card exactly above the shelf.
+        // The stationary viewport clips the moving card at the shelf edge.
         let viewport = NSView(frame:NSRect(origin:.zero,size:size))
         viewport.wantsLayer = true
         viewport.layer?.masksToBounds = true
@@ -80,6 +82,7 @@ final class SlidingShelfPanel: NSPanel {
         let height = ceil(size.height)
         guard height > 0, height != frame.height else { return }
         var resized = frame
+        if edge == .top { resized.origin.y = frame.maxY - height }
         resized.size.height = height
         setFrame(resized,display:true)
         card.setFrameSize(resized.size)
@@ -90,12 +93,14 @@ final class SlidingShelfPanel: NSPanel {
         let button = shelf.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         let bounds = screen.visibleFrame
         let x = min(max(bounds.minX + 8, button.midX - size.width / 2), bounds.maxX - size.width - 8)
-        let target = NSRect(x: x, y: shelf.frame.maxY + 6, width: size.width, height: size.height)
+        let target = NSRect(x: x, y: edge.popupY(beside: shelf.frame, height: size.height), width: size.width, height: size.height)
         if frame != target {
             setFrame(target, display: true)
             card.setFrameSize(size)
         }
     }
+
+    private var hiddenY: CGFloat { edge == .top ? card.frame.height : -card.frame.height }
 
     func showPanel(takingKey: Bool = true, dismissOnOutsideClick: Bool = true) {
         guard let anchor, let shelf = anchor.window else { return }
@@ -103,7 +108,7 @@ final class SlidingShelfPanel: NSPanel {
         isClosing = false
         ignoresMouseEvents = false
         if !wasVisible {
-            card.setFrameOrigin(NSPoint(x:0,y:-card.frame.height))
+            card.setFrameOrigin(NSPoint(x:0,y:hiddenY))
             card.alphaValue = 0
             if parent == nil { shelf.addChildWindow(self, ordered:.above) }
         }
@@ -124,12 +129,19 @@ final class SlidingShelfPanel: NSPanel {
         animate(open:false)
     }
 
+    func dismissImmediately() {
+        transition += 1
+        outside.stop()
+        parent?.removeChildWindow(self)
+        orderOut(nil)
+    }
+
     override func cancelOperation(_ sender: Any?) { dismiss() }
 
     private func animate(open: Bool) {
         transition += 1
         let token = transition
-        let destination = NSPoint(x:0,y:open ? 0 : -card.frame.height)
+        let destination = NSPoint(x:0,y:open ? 0 : hiddenY)
         let finish = { [weak self] in
             guard let self, token == self.transition else { return }
             if open {

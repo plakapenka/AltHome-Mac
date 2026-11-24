@@ -71,7 +71,19 @@ final class Tray: NSObject, NSPopoverDelegate {
     private var dockScreenWidth: CGFloat = 0
     var dockPinned: Bool { owner.defaults.bool(forKey: "dockPinned") }
     var dockVisible: Bool { dockPanel?.isVisible == true && dockPanel?.isClosing == false }
-    var pinnedDockTop: CGFloat? { dockEnabled && dockPinned && dockVisible ? dockStrip.map { owner.bar.frame.maxY + 6 + $0.restingHeight } : nil }
+    var pinnedDockInset: CGFloat { dockEnabled && dockPinned && dockVisible ? (dockStrip.map { 6 + $0.restingHeight } ?? 0) : 0 }
+
+    func dismissForPlacementChange() {
+        slidingPanel?.dismissImmediately()
+        slidingPanel = nil
+        popover?.performClose(nil)
+        dockPanel?.dismissImmediately()
+        hideDock()
+    }
+
+    func layoutPinnedDock() {
+        if dockEnabled && dockPinned && !dockVisible { showDock() }
+    }
 
     func previewDock(_ kind: DockAdjustment, editing: Bool? = nil) {
         guard dockEnabled else { return }
@@ -147,7 +159,7 @@ final class Tray: NSObject, NSPopoverDelegate {
     }
 
     @objc private func showDock() {
-        guard dockEnabled, !dockVisible, let shelf = dockEdge.window, let screen = shelf.screen else { return }
+        guard dockEnabled, !dockVisible, let shelf = dockEdge.window as? Bar, let screen = shelf.screen else { return }
         dockMirror.refresh()
         guard !dockMirror.entries.isEmpty else {
             dockMirror.onFirstEntries = { [weak self] in
@@ -165,13 +177,13 @@ final class Tray: NSObject, NSPopoverDelegate {
         owner.preview.hide()
         dockScreenWidth = screen.visibleFrame.width
         weak var presented: SlidingShelfPanel?
-        let card = DockStrip(mirror: dockMirror, defaults: owner.defaults, available: dockScreenWidth - 16) { [weak self] entry in
+        let card = DockStrip(mirror: dockMirror, defaults: owner.defaults, edge: shelf.edge, available: dockScreenWidth - 16) { [weak self] entry in
             if self?.dockPinned == false { self?.hideDock() }
             entry.open()
         }
         card.resized = { size in presented?.fitDock(to: size) }
         dockStrip = card
-        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, above: dockEdge, in: shelf, screen: screen,
+        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, beside: dockEdge, in: shelf, screen: screen,
                                       cornerRadius: 0)
         presented = panel
         dockPanel = panel
@@ -183,8 +195,8 @@ final class Tray: NSObject, NSPopoverDelegate {
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self, weak panel, weak shelf, weak card] timer in
             guard let self, let panel, let shelf, panel.isVisible, !panel.isClosing else { card?.stop(); timer.invalidate(); return }
             guard !self.dockPinned, self.dockAdjustment == nil else { return }
-            let corridor = NSRect(x: panel.frame.minX, y: shelf.frame.minY, width: panel.frame.width,
-                                  height: panel.frame.maxY - shelf.frame.minY)
+            let span = panel.frame.union(shelf.frame)
+            let corridor = NSRect(x: panel.frame.minX, y: span.minY, width: panel.frame.width, height: span.height)
             if card?.isPressingIcon == true || corridor.insetBy(dx: -4, dy: -3).contains(NSEvent.mouseLocation) { lastInside = Date() }
             else if Date().timeIntervalSince(lastInside) > 0.28 { panel.dismiss(); timer.invalidate() }
         }
@@ -207,10 +219,10 @@ final class Tray: NSObject, NSPopoverDelegate {
 
     @objc func showApple() {
         if toggleVisiblePanel(above:apple) { return }
-        guard let shelf = apple.window, let screen = shelf.screen else { return }
+        guard let shelf = apple.window as? Bar, let screen = shelf.screen else { return }
         startLibrary.refresh()
         let bounds = screen.visibleFrame
-        let size = NSSize(width:min(580,bounds.width-32),height:min(440,bounds.maxY-shelf.frame.maxY-16))
+        let size = NSSize(width:min(580,bounds.width-32),height:min(440,shelf.edge.availableFrame(in: bounds, beside: shelf.frame).height-16))
         let menu = StartMenu(library:startLibrary, size:size, launch:{ [weak self] item in
             self?.slidingPanel?.dismiss()
             self?.owner.launch(item)
@@ -228,7 +240,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             self.owner.launch(Item(url))
         }, accountMenu: { [weak self] in self?.startAccountMenu() ?? NSMenu() },
            powerMenu: { [weak self] in self?.startPowerMenu() ?? NSMenu() })
-        let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),above:apple,in:shelf,screen:screen) { window in
+        let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),beside:apple,in:shelf,screen:screen) { window in
             menu.focusSearch.send()
             if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
         }
@@ -440,10 +452,10 @@ final class Tray: NSObject, NSPopoverDelegate {
     @objc func showClock() {
         let clock = owner.clockLabel
         if toggleVisiblePanel(above:clock) { return }
-        guard let shelf = clock.window, let screen = shelf.screen else { return }
+        guard let shelf = clock.window as? Bar, let screen = shelf.screen else { return }
         let calendar = ShelfCalendar()
         let card = NSHostingView(rootView:calendar.background(Color(nsColor:.windowBackgroundColor)))
-        let panel = SlidingShelfPanel(title:"Календарь",card:card,above:clock,in:shelf,screen:screen)
+        let panel = SlidingShelfPanel(title:"Календарь",card:card,beside:clock,in:shelf,screen:screen)
         slidingPanel = panel
         panel.showPanel()
     }
@@ -455,7 +467,7 @@ final class Tray: NSObject, NSPopoverDelegate {
     }
     private func showControls(_ page:TrayPage, above anchor:NSButton) {
         if toggleVisiblePanel(above:anchor) { return }
-        guard let shelf = anchor.window, let screen = shelf.screen else { return }
+        guard let shelf = anchor.window as? Bar, let screen = shelf.screen else { return }
         weak var presented: SlidingShelfPanel?
         let display = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
         let controls = TrayControls(display:display, initialPage:page, openAirDrop: { [weak self] in
@@ -474,7 +486,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             .onGeometryChange(for:NSSize.self) { $0.size } action: { size in
                 presented?.fitContent(to:size)
             })
-        let panel = SlidingShelfPanel(title:page.rawValue,card:card,above:anchor,in:shelf,screen:screen,
+        let panel = SlidingShelfPanel(title:page.rawValue,card:card,beside:anchor,in:shelf,screen:screen,
                                       cornerRadius: page.cornerRadius)
         if page.usesGlassPanel { panel.appearance = nil }
         presented = panel
@@ -500,7 +512,7 @@ final class Tray: NSObject, NSPopoverDelegate {
         panel.contentSize = grid.size
         popover = panel
         popoverAnchor = anchor
-        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:.maxY)
+        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:owner.bar.edge == .top ? .minY : .maxY)
         (anchor as? TrayControlButton)?.setExpanded(panel.isShown)
     }
 
@@ -533,7 +545,7 @@ final class Tray: NSObject, NSPopoverDelegate {
         dockEdge.isHidden = !dockEnabled
         if dockEnabled {
             if let screen = dockEdge.window?.screen, dockVisible, screen.visibleFrame.width != dockScreenWidth { hideDock() }
-            if dockPinned && !dockVisible { showDock() }
+            layoutPinnedDock()
             if dockVisible || dockMirror.entries.isEmpty { dockMirror.refresh() }
         }
         apple.frame = NSRect(x: 4, y: 2, width: 52, height: 46)
@@ -557,8 +569,9 @@ final class Tray: NSObject, NSPopoverDelegate {
         let excludedFamilies: Set<String> = ["keyboard","wifi","sound","battery","bluetooth","control","clock","spotlight"]
         let extraItems = extras.filter { !excludedFamilies.contains(family($0)) }
         let applications = extraItems.filter { $0.app.bundleIdentifier?.hasPrefix("com.apple.") != true }
+        let arrow = owner.bar.edge == .top ? "chevron.down" : "chevron.up"
         if !applications.isEmpty {
-            controls.insert((Self.gridLabel,"chevron.up",nil,nil,{ button in
+            controls.insert((Self.gridLabel,arrow,nil,nil,{ button in
                 self.showApplicationGrid(applications,above:button)
             }),at:0)
         }
@@ -572,7 +585,7 @@ final class Tray: NSObject, NSPopoverDelegate {
         if controls.count > slots {
             let overflow = Array(controls.dropFirst(slots-1))
             controls = Array(controls.prefix(slots-1))
-            controls.append(("Другие значки","chevron.up",nil,nil,{ button in
+            controls.append(("Другие значки",arrow,nil,nil,{ button in
                 let menu = NSMenu()
                 for c in overflow {
                     self.owner.add(menu,c.label,symbol:c.symbol) { c.click(button) }
@@ -597,7 +610,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             else if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
             else { b.image = c.icon }
             b.frame = NSRect(x:left+CGFloat(i)*32,y:7,width:32,height:36)
-            b.setDisclosureVisible(isDisclosure)
+            b.setDisclosureVisible(isDisclosure, symbol: arrow)
         }
         return left
     }

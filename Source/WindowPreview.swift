@@ -107,11 +107,12 @@ final class WindowPreview {
         var lastInside = ProcessInfo.processInfo.systemUptime
         let timer = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
             guard let self else { return }
-            guard let tile = self.anchor, let bar = tile.window, !tile.visibleRect.isEmpty else { self.hide(); return }
+            guard let tile = self.anchor, let bar = tile.window as? Bar, !tile.visibleRect.isEmpty else { self.hide(); return }
             let button = bar.convertToScreen(tile.convert(tile.visibleRect, to: nil))
             // The gap between the tile and its preview is also part of the hover target.
-            let bridge = NSRect(x: button.minX, y: button.minY, width: button.width,
-                                height: max(button.height, self.panel.frame.minY - button.minY))
+            let nearY = bar.edge == .top ? self.panel.frame.maxY : self.panel.frame.minY
+            let low = min(nearY, button.minY)
+            let bridge = NSRect(x: button.minX, y: low, width: button.width, height: max(nearY, button.maxY) - low)
             let point = NSEvent.mouseLocation
             let now = ProcessInfo.processInfo.systemUptime
             if bridge.contains(point) || self.panel.frame.contains(point) { lastInside = now }
@@ -138,12 +139,12 @@ final class WindowPreview {
         anchor = tile
         pending = Task { @MainActor [weak self, weak tile] in
             try? await Task.sleep(nanoseconds:350_000_000)
-            guard !Task.isCancelled, let self, let tile, let bar = tile.window,
+            guard !Task.isCancelled, let self, let tile, let bar = tile.window as? Bar,
                   let screen = bar.screen, !tile.visibleRect.isEmpty, !app.isTerminated else { return }
             let rect = bar.convertToScreen(tile.convert(tile.visibleRect,to:nil))
             let size = panel.frame.size
             let x = min(max(screen.visibleFrame.minX + 4, rect.midX-size.width/2),screen.visibleFrame.maxX-size.width-4)
-            panel.setFrameOrigin(NSPoint(x:x,y:bar.frame.maxY+6))
+            panel.setFrameOrigin(NSPoint(x:x,y:bar.edge.popupY(beside: bar.frame, height: size.height)))
             title.stringValue = task.caption ?? task.item.name
             icon.image = app.icon
             message.stringValue = "Загрузка…"

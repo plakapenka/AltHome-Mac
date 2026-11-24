@@ -101,11 +101,13 @@ final class ShelfBackground: ShelfMenuSurface {
         dirtyRect.fill()
         let pixel = 1 / (window?.backingScaleFactor ?? 1)
         NSColor(white:0.24,alpha:1).setFill()
-        NSRect(x:0,y:bounds.maxY-pixel,width:bounds.width,height:pixel).fill()
+        let lineY = (window as? Bar)?.edge == .top ? bounds.minY : bounds.maxY - pixel
+        NSRect(x:0,y:lineY,width:bounds.width,height:pixel).fill()
     }
 }
 
 final class Bar: NSPanel {
+    var edge: ShelfEdge = .bottom
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -470,7 +472,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 guard self.bar.isVisible, !self.tiles.isEmpty,
                       let tile = self.tiles.values.first, let screen = NSScreen.screens.first,
                       screen.frame.contains(self.bar.frame),
-                      self.bar.frame.minY == screen.frame.minY,
+                      self.bar.frame == self.bar.edge.shelfFrame(on: screen),
                       let menu = tile.context?() else { exit(2) }
                 guard self.tray.apple.glyph.image != nil,
                       self.tray.apple.frame.maxX <= self.scroll.frame.minX,
@@ -481,6 +483,25 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       self.bar.contentView?.layer?.cornerRadius == 0
                 else { exit(9) }
                 print("PASS: Apple menu, input source, Wi-Fi, square panel, separate task and tray areas")
+                let edge = self.bar.edge
+                let usable = self.usableFrame(on: screen)
+                let expected = accessibilityFrame(usable, primary: screen)
+                let visible = accessibilityFrame(screen.visibleFrame, primary: screen)
+                guard !usable.intersects(self.bar.frame),
+                      shelfLimitedZoom(visible, visible: visible, usable: expected) == expected else { exit(13) }
+                let actions: [() -> Void] = [self.tray.showApple, self.tray.showClock] +
+                    self.tray.buttons.filter { button in
+                        ["Wi-Fi", "Звук", "Аккумулятор"].contains { button.toolTip?.hasPrefix($0) == true }
+                    }.map { button in { self.tray.invoke(button) } }
+                for open in actions {
+                    open()
+                    guard let panel = self.bar.childWindows?.compactMap({ $0 as? SlidingShelfPanel }).last(where: { !$0.isClosing }),
+                          screen.visibleFrame.contains(panel.frame), panel.frame.height > 0,
+                          panel.frame.minY == edge.popupY(beside: self.bar.frame, height: panel.frame.height) else { exit(14) }
+                }
+                self.tray.dismissForPlacementChange()
+                print("PASS: Start, calendar and tray panels open toward the desktop at the " + edge.rawValue + " edge")
+
                 let already = self.pins.contains { $0.key == tile.item.key }
                 guard let entry = menu.items.first(where:{$0.title == (already ? "Открепить" : "Закрепить")}) else { exit(3) }
                 self.invoke(entry)
@@ -489,7 +510,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       try! JSONDecoder().decode([Item].self,from:data) == self.pins else { exit(4) }
                 let next = self.menu(tile.item)
                 self.invoke(next.items.first(where:{$0.title == (already ? "Закрепить" : "Открепить")})!)
-                print("PASS: bar flush with bottom of screen, \(self.tiles.count) app icons, contextual pin and unpin with persistence. AX permission: \(AXIsProcessTrusted())")
+                print("PASS: bar at selected screen edge, \(self.tiles.count) app icons, contextual pin and unpin with persistence. AX permission: \(AXIsProcessTrusted())")
                 guard let app = self.liveApps().first else { exit(5) }
                 let pid = app.processIdentifier
                 // Exercise the view model with two distinct accessibility identities.
@@ -655,9 +676,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     func layoutControls() {
         guard let screen = NSScreen.screens.first, bar != nil else { return }
-        let bounds = screen.visibleFrame
-        let frame = NSRect(x:bounds.minX,y:screen.frame.minY,width:bounds.width,height:50)
-        if geometry != frame { geometry = frame; bar.setFrame(frame,display:true) }
+        let edge = ShelfEdge(rawValue: defaults.string(forKey: "shelfEdge") ?? "") ?? .bottom
+        let frame = edge.shelfFrame(on: screen)
+        if geometry != frame || bar.edge != edge {
+            let previous = geometry != .zero && bar.edge != edge ? usableFrame(on: screen) : nil
+            tray.dismissForPlacementChange()
+            preview.hide()
+            bar.edge = edge
+            geometry = frame
+            bar.setFrame(frame, display: true)
+            bar.contentView?.needsDisplay = true
+            if let previous {
+                tray.layoutPinnedDock()
+                refitWindows(from: previous, on: screen)
+            }
+        }
         let width = frame.width
         let desktopWidth: CGFloat = 12
         desktopButton.frame = NSRect(x:width-desktopWidth, y:0, width:desktopWidth, height:frame.height)

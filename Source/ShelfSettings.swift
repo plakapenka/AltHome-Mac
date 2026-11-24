@@ -12,6 +12,7 @@ private struct ShelfSettings: View {
     @AppStorage("fnCommandLetters") private var fnCommandLetters = false
     @AppStorage("layoutShortcutMode") private var layoutShortcutMode: String?
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
+    @AppStorage("shelfEdge") private var shelfEdge = ShelfEdge.bottom
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("dockMode") private var dockMode = DockMode.system
     @AppStorage("dockPinned") private var dockPinned = false
@@ -76,6 +77,11 @@ private struct ShelfSettings: View {
                         }
                     } else {
                         Section {
+                            Picker("Положение панели", selection: $shelfEdge) {
+                                Text("Снизу").tag(ShelfEdge.bottom)
+                                Text("Сверху").tag(ShelfEdge.top)
+                            }.pickerStyle(.segmented)
+                            .onChange(of: shelfEdge) { _ in owner.render() }
                             Toggle("Показывать дату", isOn: $showsDate)
                                 .onChange(of: showsDate) { _ in owner.render() }
                             Picker("Переключение языка", selection: Binding(get: {

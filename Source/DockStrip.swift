@@ -101,6 +101,7 @@ final class DockStrip: NSView {
     let open: (DockEntry) -> Void
     var resized: ((NSSize) -> Void)?
     private let mirror: DockMirror
+    private let edge: ShelfEdge
     private let available: CGFloat
     private let defaults: UserDefaults
     private let plate: NSView
@@ -123,9 +124,10 @@ final class DockStrip: NSView {
     override var fittingSize: NSSize { canvas }
     var restingHeight: CGFloat { side + 14 }
 
-    init(mirror: DockMirror, defaults: UserDefaults, available: CGFloat, open: @escaping (DockEntry) -> Void) {
+    init(mirror: DockMirror, defaults: UserDefaults, edge: ShelfEdge, available: CGFloat, open: @escaping (DockEntry) -> Void) {
         self.mirror = mirror
         self.defaults = defaults
+        self.edge = edge
         self.available = available
         self.open = open
         if #available(macOS 26, *) {
@@ -294,7 +296,7 @@ final class DockStrip: NSView {
         }
         if nameTag == nil { nameTag = DockNameTag() }
         let anchor = dock.convertToScreen(button.convert(button.bounds, to: nil))
-        nameTag?.show(button.entry.title, above: anchor, in: dock)
+        nameTag?.show(button.entry.title, beside: anchor, in: dock, edge: edge)
     }
 
     private func place(animateNeighbors: Bool) {
@@ -319,8 +321,9 @@ final class DockStrip: NSView {
         var leading = 8 + (documentWidth - contentWidth) / 2
         let width = min(available, contentWidth)
         let x = (canvas.width - width) / 2
-        hoverRegion = NSRect(x: x, y: 0, width: width, height: height)
-        let plateFrame = NSRect(x: x, y: 0, width: width, height: restingHeight)
+        func baseY(_ height: CGFloat) -> CGFloat { edge == .top ? canvas.height - height : 0 }
+        hoverRegion = NSRect(x: x, y: baseY(height), width: width, height: height)
+        let plateFrame = NSRect(x: x, y: baseY(restingHeight), width: width, height: restingHeight)
         if plate.frame != plateFrame { plate.frame = plateFrame }
         let viewport = NSRect(origin: .zero, size: canvas)
         if scroll.frame != viewport { scroll.frame = viewport }
@@ -331,8 +334,8 @@ final class DockStrip: NSView {
             let separator = entry.role == "AXSeparatorDockItem"
             let size = sizes[entry.key] ?? side
             let width = separator ? 12 : size + 2
-            let rect = separator ? NSRect(x: leading + 5.5, y: 7, width: 1, height: side * 0.76)
-                                 : NSRect(x: leading, y: 0, width: width, height: size + 14)
+            let rect = separator ? NSRect(x: leading + 5.5, y: baseY(restingHeight) + 7, width: 1, height: side * 0.76)
+                                 : NSRect(x: leading, y: baseY(size + 14), width: width, height: size + 14)
             let previous = view.frame
             if previous != rect {
                 let layer = view.layer

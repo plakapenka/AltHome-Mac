@@ -13,6 +13,17 @@ func nearlyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
 
 // Match the result of a native zoom, including vertical-only zoom and macOS tiling margins.
 func shelfLimitedZoom(_ frame: CGRect, visible: CGRect, usable: CGRect) -> CGRect? {
+    if usable.minY > visible.minY {
+        // Reflect AX coordinates so both placements share the native zoom/margin rules.
+        func reflected(_ r: CGRect) -> CGRect {
+            CGRect(x: r.minX, y: -r.maxY, width: r.width, height: r.height)
+        }
+        return limitBottomOfZoom(reflected(frame), visible: reflected(visible), usable: reflected(usable)).map(reflected)
+    }
+    return limitBottomOfZoom(frame, visible: visible, usable: usable)
+}
+
+private func limitBottomOfZoom(_ frame: CGRect, visible: CGRect, usable: CGRect) -> CGRect? {
     guard usable.maxY < visible.maxY, abs(frame.minY - visible.minY) <= 24,
           frame.intersects(usable), frame.minY < usable.maxY else { return nil }
     let coversShelf = frame.maxY >= visible.maxY - 24 && frame.maxY > usable.maxY
@@ -63,13 +74,25 @@ struct ChatTitleDrag {
 
 extension Delegate {
     func usableFrame(on screen: NSScreen) -> CGRect {
-        var frame = screen.visibleFrame
-        if frame.intersects(bar.frame) {
-            let bottom = min(frame.maxY, tray.pinnedDockTop ?? bar.frame.maxY)
-            frame.size.height = frame.maxY - bottom
-            frame.origin.y = bottom
+        guard screen.frame.intersects(bar.frame) else { return screen.visibleFrame }
+        return bar.edge.availableFrame(in: screen.visibleFrame, beside: bar.frame, inset: tray.pinnedDockInset)
+    }
+
+    func refitWindows(from previous: CGRect, on screen: NSScreen) {
+        guard !CommandLine.arguments.contains("--ui-check"), AXIsProcessTrusted(), let primary = NSScreen.screens.first else { return }
+        let old = accessibilityFrame(previous, primary: primary)
+        let new = accessibilityFrame(usableFrame(on: screen), primary: primary)
+        for entry in snapshots.values.joined() {
+            guard !entry.fullScreen, !minimized(entry.window), let frame = windowRect(entry.window),
+                  old.contains(CGPoint(x: frame.midX, y: frame.midY)),
+                  abs(frame.minY - old.minY) < 2, abs(frame.maxY - old.maxY) < 2 else { continue }
+            let target = CGRect(x: frame.minX, y: new.minY, width: frame.width, height: new.height)
+            if writeFrame(target, to: entry.window),
+               let i = expanded.firstIndex(where: { CFEqual(entry.window, $0.1) }) {
+                expanded[i].3 = windowRect(entry.window) ?? target
+            }
         }
-        return frame
+        scheduleMaximizedWindowFit()
     }
 
     // Space transitions and reopened maximized windows can arrive without a double-click.
@@ -90,15 +113,16 @@ extension Delegate {
                 // A full-screen window can exclude the camera housing at the top.
                 // Leave side-by-side Split View windows in their shared Space.
                 let display = accessibilityFrame(screen.frame, primary: primary)
+                let usable = accessibilityFrame(self.usableFrame(on: screen), primary: primary)
                 if abs(frame.minX - display.minX) < 2, abs(frame.width - display.width) < 2,
-                   frame.maxY > accessibilityFrame(self.usableFrame(on: screen), primary: primary).maxY {
+                   frame.maxY > usable.maxY || frame.minY < usable.minY {
                     self.fitAfterFullScreen(window, app: app, on: screen)
                 }
                 return
             }
             guard let fitted = shelfLimitedZoom(frame, visible: accessibilityFrame(screen.visibleFrame, primary: primary),
                                                 usable: accessibilityFrame(self.usableFrame(on: screen), primary: primary)) else { return }
-            _ = self.resize(window, to: fitted.size)
+            _ = self.applyFittedFrame(fitted, current: frame, to: window)
         }
         maximizedWindowCheck = check
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: check)
@@ -137,6 +161,12 @@ extension Delegate {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
+    }
+
+    private func applyFittedFrame(_ target: CGRect, current: CGRect, to window: AXUIElement) -> Bool {
+        // Moving an already tiled window can restart the system zoom animation.
+        if target.origin == current.origin { return resize(window, to: target.size) }
+        return writeFrame(target, to: window)
     }
 
     private func resize(_ window: AXUIElement, to size: CGSize) -> Bool {
@@ -245,7 +275,7 @@ extension Delegate {
                 // A custom title bar may have already zoomed by the time AX reports the first frame.
                 // There is no original size to save in that case.
                 if attempt >= 3, click.point.y - frame.minY < 36 {
-                    _ = self.resize(click.window, to: fitted.size)
+                    _ = self.applyFittedFrame(fitted, current: frame, to: click.window)
                     return
                 }
             }
@@ -256,10 +286,7 @@ extension Delegate {
     }
 
     private func applyZoomBounds(_ goal: CGRect, native: CGRect, click: TitleBarClick, restoring: Bool, retries: Int) {
-        if goal.origin == native.origin {
-            // Moving an already tiled window can restart the system zoom animation.
-            guard resize(click.window, to: goal.size) else { return }
-        } else if !writeFrame(goal, to: click.window) { return }
+        guard applyFittedFrame(goal, current: native, to: click.window) else { return }
         expanded.removeAll { CFEqual($0.1, click.window) }
         if !restoring { expanded.append((click.app.processIdentifier, click.window, click.frame, goal)) }
         guard retries > 0 else { return }

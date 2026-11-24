@@ -31,7 +31,7 @@ final class DockNameTag: NSPanel {
         material.addSubview(label)
     }
 
-    func show(_ name: String, above anchor: NSRect, in dock: NSWindow) {
+    func show(_ name: String, beside anchor: NSRect, in dock: NSWindow, edge: ShelfEdge) {
         if lastAnchor == anchor, parent === dock, label.stringValue == name, isVisible { return }
         guard let screen = dock.screen else { hide(); return }
         lastAnchor = anchor
@@ -39,15 +39,17 @@ final class DockNameTag: NSPanel {
         let visible = screen.visibleFrame
         let width = min(ceil(label.intrinsicContentSize.width) + 22, 380, visible.width - 12)
         let x = min(max(round(anchor.midX - width / 2), visible.minX + 6), visible.maxX - width - 6)
-        let rect = NSRect(x: x, y: round(anchor.maxY) + 3, width: width, height: 32)
+        let rect = NSRect(x: x, y: round(edge.popupY(beside: anchor, height: 32, gap: 3)), width: width, height: 32)
         let tip = min(max(round(anchor.midX - x), 10), width - 10)
         if frame.size != rect.size || tip != lastTip {
             lastTip = tip
             let path = CGMutablePath()
-            path.addRoundedRect(in: CGRect(x: 0, y: 5, width: width, height: 27), cornerWidth: 8, cornerHeight: 8)
-            path.move(to: CGPoint(x: tip - 5, y: 6))
-            path.addLine(to: CGPoint(x: tip, y: 0))
-            path.addLine(to: CGPoint(x: tip + 5, y: 6))
+            let labelY: CGFloat = edge == .top ? 0 : 5
+            let baseY: CGFloat = edge == .top ? 26 : 6
+            path.addRoundedRect(in: CGRect(x: 0, y: labelY, width: width, height: 27), cornerWidth: 8, cornerHeight: 8)
+            path.move(to: CGPoint(x: tip - 5, y: baseY))
+            path.addLine(to: CGPoint(x: tip, y: edge == .top ? 32 : 0))
+            path.addLine(to: CGPoint(x: tip + 5, y: baseY))
             path.closeSubpath()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -55,7 +57,7 @@ final class DockNameTag: NSPanel {
             maskShape.path = path
             CATransaction.commit()
             let h = ceil(label.intrinsicContentSize.height)
-            label.frame = NSRect(x: 9, y: 5 + floor((27 - h) / 2), width: width - 18, height: h)
+            label.frame = NSRect(x: 9, y: labelY + floor((27 - h) / 2), width: width - 18, height: h)
             invalidateShadow()
         }
         if frame != rect { setFrame(rect, display: true) }

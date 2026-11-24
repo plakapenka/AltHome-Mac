@@ -162,7 +162,8 @@ private struct StartActionMenuButton: NSViewRepresentable {
             let menu = makeMenu()
             let size = menu.size
             let x = max(visible.minX + 4, min(anchor.minX, visible.maxX - size.width - 4))
-            let top = min(visible.maxY - 4, anchor.maxY + 5 + size.height)
+            let edge = (window as? SlidingShelfPanel)?.edge ?? .bottom
+            let top = edge.menuTop(beside: anchor, height: size.height, visible: visible)
             let point = button.convert(window.convertPoint(fromScreen: NSPoint(x: x, y: top)), from: nil)
             menu.popUp(positioning: nil, at: point, in: button)
         }
