@@ -5,9 +5,14 @@ final class DesktopButton: ShelfButton {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let width = min(6, bounds.width)
-        NSColor.white.withAlphaComponent(showsHover ? 0.32 : 0.14).setFill()
-        NSRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height).fill()
+        let cap = NSRect(x: bounds.maxX - 5, y: bounds.minY, width: 5, height: bounds.height)
+        if showsHover {
+            NSColor.white.withAlphaComponent(0.12).setFill()
+            cap.fill()
+        }
+        let pixel = 1 / (window?.backingScaleFactor ?? 1)
+        NSColor.white.withAlphaComponent(showsHover ? 0.64 : 0.45).setFill()
+        NSRect(x: cap.minX, y: cap.minY, width: pixel, height: cap.height).fill()
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
