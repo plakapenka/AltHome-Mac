@@ -1,16 +1,19 @@
 import AppKit
 
 struct ShelfSizing: Equatable {
-    static let preference = "largeShelfIcons"
-    let compact: Bool
+    static let iconPreference = "largeShelfIcons"
+    static let heightPreference = "compactShelfHeight"
+    let largeIcons: Bool
+    let compactHeight: Bool
 
-    var height: CGFloat { compact ? 36 : 50 }
-    var tileHeight: CGFloat { height - 6 }
-    var iconSize: CGFloat { compact ? 20 : 30 }
-    var pinWidth: CGFloat { compact ? 36 : 48 }
-    var captionX: CGFloat { compact ? 32 : 44 }
-    var trayWidth: CGFloat { compact ? 28 : 32 }
-    var controlHeight: CGFloat { compact ? 30 : 36 }
+    var height: CGFloat { compactHeight ? 36 : 50 }
+    var tileInset: CGFloat { compactHeight ? 1 : 3 }
+    var tileHeight: CGFloat { height - 2 * tileInset }
+    var iconSize: CGFloat { largeIcons ? 30 : 20 }
+    var pinWidth: CGFloat { largeIcons ? 48 : 36 }
+    var captionX: CGFloat { largeIcons ? 44 : 32 }
+    var trayWidth: CGFloat { largeIcons ? 32 : 28 }
+    var controlHeight: CGFloat { compactHeight ? 30 : 36 }
     var controlY: CGFloat { (height - controlHeight) / 2 }
 }
 

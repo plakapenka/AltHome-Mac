@@ -110,7 +110,7 @@ final class ShelfBackground: ShelfMenuSurface {
 
 final class Bar: NSPanel {
     var edge: ShelfEdge = .bottom
-    var sizing = ShelfSizing(compact: false)
+    var sizing = ShelfSizing(largeIcons: true, compactHeight: false)
     let surface = ShelfBackground()
     private var backdrop: NSVisualEffectView?
 
@@ -180,7 +180,7 @@ final class Tile: ShelfButton {
         return label
     }()
     static func preferredWidth(for text: String?, sizing: ShelfSizing) -> CGFloat {
-        guard !sizing.compact, let text else { return sizing.pinWidth }
+        guard sizing.largeIcons, let text else { return sizing.pinWidth }
         measuringLabel.stringValue = text
         let textWidth = ceil(measuringLabel.intrinsicContentSize.width) + captionDrawingAllowance
         return min(maximumWidth, sizing.captionX + textWidth + trailingInset)
@@ -362,10 +362,10 @@ final class Tile: ShelfButton {
     func update(image: NSImage, running: Bool, active: Bool, pinned: Bool, text: String?, sizing: ShelfSizing) {
         icon.image = image
         caption.stringValue = text ?? ""
-        caption.isHidden = sizing.compact || text == nil
+        caption.isHidden = !sizing.largeIcons || text == nil
         let iconSize = sizing.iconSize
-        let markHeight: CGFloat = sizing.compact ? 2 : 3
-        let gap: CGFloat = sizing.compact ? 2 : 3
+        let markHeight: CGFloat = sizing.largeIcons && !sizing.compactHeight ? 3 : 2
+        let gap: CGFloat = sizing.largeIcons && !sizing.compactHeight ? 3 : 2
         let stackHeight = iconSize + (running ? gap + markHeight : 0)
         let stackMinY = bounds.midY - stackHeight / 2
         let iconY = isFlipped ? stackMinY : stackMinY + stackHeight - iconSize
@@ -373,7 +373,7 @@ final class Tile: ShelfButton {
         icon.frame = NSRect(x:iconCenterX-iconSize/2, y:iconY, width:iconSize, height:iconSize)
         indicator.isHidden = !running
         if running {
-            let markWidth: CGFloat = active ? (sizing.compact ? 12 : 16) : (sizing.compact ? 6 : 8)
+            let markWidth: CGFloat = active ? (sizing.largeIcons ? 16 : 12) : (sizing.largeIcons ? 8 : 6)
             let markY = isFlipped ? icon.frame.maxY + gap : stackMinY
             indicator.frame = NSRect(x:iconCenterX-markWidth/2, y:markY, width:markWidth, height:markHeight)
             indicator.layer?.backgroundColor = (active ? NSColor(srgbRed:0.38,green:0.83,blue:1,alpha:1) : NSColor.white).cgColor
@@ -434,7 +434,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var geometry: NSRect = .zero
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        defaults.register(defaults:["showDate": true, ShelfSizing.preference: true])
+        defaults.register(defaults:["showDate": true, ShelfSizing.iconPreference: true])
         if let data = defaults.data(forKey:"pins"), let saved = try? JSONDecoder().decode([Item].self,from:data) { pins = saved }
         bar = Bar(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         bar.isReleasedWhenClosed = false
@@ -517,13 +517,15 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       self.tray.buttons.contains(where: { $0.toolTip?.hasPrefix("Wi-Fi · ") == true && $0.image != nil }),
                       self.bar.contentView?.layer?.cornerRadius == 0
                 else { exit(9) }
-                let small = !self.defaults.bool(forKey: ShelfSizing.preference)
-                guard self.bar.frame.height == (small ? 36 : 50),
+                let small = !self.defaults.bool(forKey: ShelfSizing.iconPreference)
+                let compact = self.defaults.bool(forKey: ShelfSizing.heightPreference)
+                guard self.bar.frame.height == (compact ? 36 : 50),
                       tile.frame.height == self.bar.sizing.tileHeight,
+                      tile.subviews.filter({ !$0.isHidden }).allSatisfy({ tile.bounds.contains($0.frame) }),
                       tile.subviews.compactMap({ $0 as? NSImageView }).first?.frame.height == (small ? 20 : 30),
                       self.bar.surface.bounds.contains(self.clockLabel.frame),
                       self.tray.buttons.allSatisfy({ self.bar.surface.bounds.contains($0.frame) }) else { exit(19) }
-                print("PASS: shelf and icon dimensions, small icons:", small)
+                print("PASS: shelf height", self.bar.frame.height, "small icons:", small)
                 let blurred = self.defaults.bool(forKey: "blurShelfBackground") && !self.ws.accessibilityDisplayShouldReduceTransparency
                 guard let root = self.bar.contentView,
                       self.bar.isOpaque == !blurred, self.bar.surface.isOpaque == !blurred,
@@ -720,12 +722,12 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let alignment = NSMutableParagraphStyle()
         alignment.alignment = .center
         let title = NSMutableAttributedString(string:timeFormatter.string(from:date), attributes:[
-            .font: NSFont.monospacedDigitSystemFont(ofSize:bar.sizing.compact ? 12 : 13, weight:.medium),
+            .font: NSFont.monospacedDigitSystemFont(ofSize:bar.sizing.compactHeight ? 12 : 13, weight:.medium),
             .foregroundColor: NSColor.white, .paragraphStyle: alignment
         ])
         if showsDate {
             title.append(NSAttributedString(string:"\n" + dateFormatter.string(from:date), attributes:[
-                .font: NSFont.monospacedDigitSystemFont(ofSize:bar.sizing.compact ? 10 : 11, weight:.regular),
+                .font: NSFont.monospacedDigitSystemFont(ofSize:bar.sizing.compactHeight ? 10 : 11, weight:.regular),
                 .foregroundColor: NSColor(white:0.86, alpha:1), .paragraphStyle: alignment
             ]))
         }
@@ -745,14 +747,14 @@ final class Delegate: NSObject, NSApplicationDelegate {
     func layoutControls() {
         guard let screen = NSScreen.screens.first, bar != nil else { return }
         let edge = ShelfEdge(rawValue: defaults.string(forKey: "shelfEdge") ?? "") ?? .bottom
-        let sizing = ShelfSizing(compact: !defaults.bool(forKey: ShelfSizing.preference))
+        let sizing = ShelfSizing(largeIcons: defaults.bool(forKey: ShelfSizing.iconPreference),
+                               compactHeight: defaults.bool(forKey: ShelfSizing.heightPreference))
         let frame = edge.shelfFrame(on: screen, height: sizing.height)
         if geometry != frame || bar.edge != edge {
-            let previous = geometry != .zero && (bar.edge != edge || bar.sizing != sizing) ? usableFrame(on: screen) : nil
+            let previous = geometry != .zero && (bar.edge != edge || bar.sizing.height != sizing.height) ? usableFrame(on: screen) : nil
             tray.dismissForPlacementChange()
             preview.hide()
             bar.edge = edge
-            bar.sizing = sizing
             geometry = frame
             bar.setFrame(frame, display: true)
             bar.surface.needsDisplay = true
@@ -761,6 +763,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 refitWindows(from: previous, on: screen)
             }
         }
+        bar.sizing = sizing
         let width = frame.width
         let desktopWidth: CGFloat = 12
         desktopButton.frame = NSRect(x:width-desktopWidth, y:0, width:desktopWidth, height:frame.height)
@@ -769,7 +772,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         updateClock(at:now, rightEdge:desktopButton.frame.minX-3)
         let trayLeft = tray.layout(width)
         let tasksLeft = tray.apple.frame.maxX + 4
-        let tasksFrame = NSRect(x: tasksLeft, y: 3, width: max(1, trayLeft - tasksLeft - 3), height: sizing.tileHeight)
+        let tasksFrame = NSRect(x: tasksLeft, y: sizing.tileInset, width: max(1, trayLeft - tasksLeft - 3), height: sizing.tileHeight)
         if scroll.frame != tasksFrame {
             scroll.frame = tasksFrame
             updateStripWidth()

@@ -539,8 +539,8 @@ final class Tray: NSObject {
             layoutPinnedDock()
             if dockVisible || dockMirror.entries.isEmpty { dockMirror.refresh() }
         }
-        apple.frame = NSRect(x: 4, y: 2, width: sizing.compact ? 40 : 52, height: sizing.height - 4)
-        apple.setGlyphSize(sizing.compact ? 20 : 26)
+        apple.frame = NSRect(x: 4, y: 2, width: sizing.largeIcons ? 52 : 40, height: sizing.height - 4)
+        apple.setGlyphSize(sizing.largeIcons ? 26 : 20)
         scan()
         var controls: [Control] = []
         func system(_ page:TrayPage, _ label:String, _ symbol:String) {
@@ -605,7 +605,7 @@ final class Tray: NSObject {
             if isDisclosure { b.image = nil }
             else if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
             else { b.image = c.icon }
-            if sizing.compact, let image = b.image {
+            if !sizing.largeIcons, let image = b.image {
                 if let symbol = image.withSymbolConfiguration(.init(pointSize: 11, weight: .regular)) {
                     b.image = symbol
                 } else if let small = image.copy() as? NSImage {
