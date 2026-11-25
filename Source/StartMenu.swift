@@ -314,7 +314,6 @@ struct StartMenu: View {
         .background {
             if blurBackground && !reduceTransparency {
                 StartBackdrop()
-                    .overlay(Color(nsColor: ShelfBackdrop.tint))
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             } else {

@@ -1,13 +1,40 @@
 import SwiftUI
 
 final class ShelfBackdrop: NSVisualEffectView {
-    static let tint = NSColor.black.withAlphaComponent(0.58)
+    // WinUI's dark base acrylic uses #202020 at 50% over its backdrop.
+    private final class Tint: NSView {
+        private static let pigment: NSColor = {
+            let side = 64
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side,
+                bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: side * 3, bitsPerPixel: 24), let pixels = bitmap.bitmapData else {
+                return NSColor(srgbRed: 32/255, green: 32/255, blue: 32/255, alpha: 1)
+            }
+            // A small stationary tile gives the tint a fine grain without sampling the screen.
+            for i in 0..<(side * side) {
+                let shade = UInt8.random(in: 28...36)
+                for channel in 0..<3 { pixels[i * 3 + channel] = shade }
+            }
+            let image = NSImage(size: bitmap.size)
+            image.addRepresentation(bitmap)
+            return NSColor(patternImage: image)
+        }()
+
+        override func draw(_ dirtyRect: NSRect) {
+            Self.pigment.setFill()
+            bounds.intersection(dirtyRect).fill()
+        }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         blendingMode = .behindWindow
         material = .hudWindow
         state = .active
+        let tint = Tint(frame: bounds)
+        tint.alphaValue = 0.5
+        tint.autoresizingMask = [.width, .height]
+        addSubview(tint)
     }
 
     required init?(coder: NSCoder) { fatalError() }

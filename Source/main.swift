@@ -99,8 +99,8 @@ final class ShelfBackground: ShelfMenuSurface {
     var blurred = false
     override var isOpaque: Bool { !blurred }
     override func draw(_ dirtyRect: NSRect) {
-        (blurred ? ShelfBackdrop.tint : Self.solidColor).setFill()
-        dirtyRect.fill()
+        (blurred ? NSColor.clear : Self.solidColor).setFill()
+        dirtyRect.fill(using: .copy)
         let pixel = 1 / (window?.backingScaleFactor ?? 1)
         (blurred ? NSColor.white.withAlphaComponent(0.16) : NSColor(white:0.24,alpha:1)).setFill()
         let lineY = (window as? Bar)?.edge == .top ? bounds.minY : bounds.maxY - pixel
