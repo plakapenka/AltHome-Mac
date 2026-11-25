@@ -191,7 +191,14 @@ private struct StartActionMenuButton: NSViewRepresentable {
     func updateNSView(_ button: NSButton, context: Context) { context.coordinator.makeMenu = makeMenu }
 }
 
+private struct StartBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> ShelfBackdrop { ShelfBackdrop(frame: .zero) }
+    func updateNSView(_ view: ShelfBackdrop, context: Context) {}
+}
+
 struct StartMenu: View {
+    @AppStorage("blurShelfBackground") private var blurBackground = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ObservedObject var library: StartLibrary
     let size: CGSize
     let launch: (Item) -> Void
@@ -304,6 +311,15 @@ struct StartMenu: View {
                 StartActionMenuButton(title: "Питание", symbol: "power", makeMenu: powerMenu).modifier(StartFooterIcon())
             }.padding(.horizontal,16).frame(height:46).background(Color.primary.opacity(0.04))
         }.frame(width:size.width,height:size.height)
-         .background(Color(nsColor:.windowBackgroundColor))
+        .background {
+            if blurBackground && !reduceTransparency {
+                StartBackdrop()
+                    .overlay(Color(nsColor: ShelfBackdrop.tint))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            } else {
+                Color(nsColor: .windowBackgroundColor)
+            }
+        }
     }
 }

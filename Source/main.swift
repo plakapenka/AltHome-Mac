@@ -99,7 +99,7 @@ final class ShelfBackground: ShelfMenuSurface {
     var blurred = false
     override var isOpaque: Bool { !blurred }
     override func draw(_ dirtyRect: NSRect) {
-        (blurred ? NSColor.black.withAlphaComponent(0.16) : Self.solidColor).setFill()
+        (blurred ? ShelfBackdrop.tint : Self.solidColor).setFill()
         dirtyRect.fill()
         let pixel = 1 / (window?.backingScaleFactor ?? 1)
         (blurred ? NSColor.white.withAlphaComponent(0.16) : NSColor(white:0.24,alpha:1)).setFill()
@@ -118,11 +118,8 @@ final class Bar: NSPanel {
         isOpaque = !blurred
         backgroundColor = blurred ? .clear : ShelfBackground.solidColor
         if blurred, backdrop == nil {
-            let effect = NSVisualEffectView(frame: root.bounds)
+            let effect = ShelfBackdrop(frame: root.bounds)
             effect.autoresizingMask = [.width, .height]
-            effect.blendingMode = .behindWindow
-            effect.material = .hudWindow
-            effect.state = .active
             root.addSubview(effect, positioned: .below, relativeTo: surface)
             backdrop = effect
         } else if !blurred {
@@ -543,6 +540,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
                     guard let panel = self.bar.childWindows?.compactMap({ $0 as? SlidingShelfPanel }).last(where: { !$0.isClosing }),
                           screen.visibleFrame.contains(panel.frame), panel.frame.height > 0,
                           panel.frame.minY == edge.popupY(beside: self.bar.frame, height: panel.frame.height) else { exit(14) }
+                    if panel.anchor === self.tray.apple {
+                        func containsBackdrop(_ view: NSView) -> Bool {
+                            view is ShelfBackdrop || view.subviews.contains(where: containsBackdrop)
+                        }
+                        guard let content = panel.contentView, containsBackdrop(content) == blurred else { exit(18) }
+                        print("PASS: Start menu follows shelf blur:", blurred)
+                    }
                 }
                 self.tray.dismissForPlacementChange()
                 print("PASS: Start, calendar and tray panels open toward the desktop at the " + edge.rawValue + " edge")

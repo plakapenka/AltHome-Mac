@@ -1,5 +1,18 @@
 import SwiftUI
 
+final class ShelfBackdrop: NSVisualEffectView {
+    static let tint = NSColor.black.withAlphaComponent(0.16)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        blendingMode = .behindWindow
+        material = .hudWindow
+        state = .active
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 enum MenuAppearance {
     static let sky = Color(red: 0.48, green: 0.84, blue: 1)
 

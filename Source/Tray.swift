@@ -239,7 +239,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             self.owner.launch(Item(url))
         }, accountMenu: { [weak self] in self?.startAccountMenu() ?? NSMenu() },
            powerMenu: { [weak self] in self?.startPowerMenu() ?? NSMenu() })
-        let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu),beside:apple,in:shelf,screen:screen) { window in
+        let panel = SlidingShelfPanel(title:"Пуск",card:NSHostingView(rootView:menu.defaultAppStorage(owner.defaults)),beside:apple,in:shelf,screen:screen) { window in
             menu.focusSearch.send()
             if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor { editor.selectAll(nil) }
         }

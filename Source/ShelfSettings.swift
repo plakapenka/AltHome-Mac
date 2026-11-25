@@ -85,7 +85,7 @@ private struct ShelfSettings: View {
                             .onChange(of: shelfEdge) { _ in owner.render() }
                             Toggle("Прозрачный фон с размытием", isOn: $blurShelfBackground)
                                 .onChange(of: blurShelfBackground) { _ in owner.updateShelfAppearance() }
-                                .help("При включённом в macOS уменьшении прозрачности фон остаётся сплошным.")
+                                .help("Меняет фон панели и меню «Пуск». При уменьшении прозрачности в macOS фон остаётся сплошным.")
                             Toggle("Показывать дату", isOn: $showsDate)
                                 .onChange(of: showsDate) { _ in owner.render() }
                             Picker("Переключение языка", selection: Binding(get: {
