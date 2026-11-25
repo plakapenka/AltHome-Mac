@@ -10,7 +10,7 @@ struct StatusIconGrid: View {
     private var columns: Int { max(1,min(entries.count,5)) }
     private var rows: Int { (entries.count + columns - 1) / columns }
 
-    var size: NSSize {
+    private var size: NSSize {
         let visibleRows = min(rows,6)
         return NSSize(width:CGFloat(columns)*cell + CGFloat(columns-1)*spacing + 16,
                       height:CGFloat(visibleRows)*cell + CGFloat(visibleRows-1)*spacing + 16)
@@ -33,7 +33,7 @@ struct StatusIconGrid: View {
         }
         .frame(width:size.width-16,height:size.height-16)
         .padding(8)
-        .background(MenuAppearance.wash(MenuAppearance.sky))
+        .background { ShelfPanelSurface() }
     }
 }
 
@@ -46,6 +46,16 @@ private struct StatusIconButton: NSViewRepresentable {
     final class Button: ShelfButton {
         var onOpen: (() -> Void)?
         var makeMenu: (() -> NSMenu)?
+        override func tint() {
+            layer?.cornerRadius = 10
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(showsHover ? 0.10 : 0).cgColor
+            }
+        }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            tint()
+        }
         @objc func openIcon() { onOpen?() }
         override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
         override func mouseDown(with event: NSEvent) {

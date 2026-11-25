@@ -37,6 +37,7 @@ final class SlidingShelfPanel: NSPanel {
     private let card: NSView
     private let onShow: ((NSWindow) -> Void)?
     private(set) weak var anchor: NSButton?
+    var onPresentationChange: ((Bool) -> Void)?
     private var transition = 0
     private(set) var isClosing = false
     override var canBecomeKey: Bool { true }
@@ -114,6 +115,7 @@ final class SlidingShelfPanel: NSPanel {
         }
         if takingKey { makeKeyAndOrderFront(nil) } else { orderFrontRegardless() }
         card.layoutSubtreeIfNeeded()
+        onPresentationChange?(true)
         onShow?(self)
         if dismissOnOutsideClick {
             outside.start(window:self,anchor:anchor) { [weak self] in self?.dismiss() }
@@ -124,12 +126,14 @@ final class SlidingShelfPanel: NSPanel {
     func dismiss() {
         guard isVisible, !isClosing else { return }
         isClosing = true
+        onPresentationChange?(false)
         outside.stop()
         ignoresMouseEvents = true
         animate(open:false)
     }
 
     func dismissImmediately() {
+        onPresentationChange?(false)
         transition += 1
         outside.stop()
         parent?.removeChildWindow(self)

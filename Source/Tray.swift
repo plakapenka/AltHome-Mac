@@ -53,7 +53,7 @@ private func menuEntries(_ root: AXUIElement, host: NSRunningApplication) -> [Ex
     return result
 }
 
-final class Tray: NSObject, NSPopoverDelegate {
+final class Tray: NSObject {
     private static let gridLabel = "Значки приложений"
     unowned let owner: Delegate
     private lazy var startLibrary = StartLibrary(defaults:owner.defaults)
@@ -75,7 +75,6 @@ final class Tray: NSObject, NSPopoverDelegate {
     func dismissForPlacementChange() {
         slidingPanel?.dismissImmediately()
         slidingPanel = nil
-        popover?.performClose(nil)
         dockPanel?.dismissImmediately()
         hideDock()
     }
@@ -123,8 +122,6 @@ final class Tray: NSObject, NSPopoverDelegate {
     var scanTime = Date.distantPast
     var scanning = false
     var surface: NSView!
-    private var popover: NSPopover?
-    private weak var popoverAnchor: NSButton?
     private var slidingPanel: SlidingShelfPanel?
     init(_ owner: Delegate) { self.owner = owner }
     func install(_ view: NSView) {
@@ -171,7 +168,6 @@ final class Tray: NSObject, NSPopoverDelegate {
         }
         if !dockPinned {
             slidingPanel?.dismiss()
-            popover?.performClose(nil)
         }
         owner.preview.hide()
         dockScreenWidth = screen.visibleFrame.width
@@ -212,7 +208,6 @@ final class Tray: NSObject, NSPopoverDelegate {
             return true
         }
         slidingPanel?.dismiss()
-        popover?.performClose(nil)
         return false
     }
 
@@ -459,12 +454,6 @@ final class Tray: NSObject, NSPopoverDelegate {
         slidingPanel = panel
         panel.showPanel()
     }
-    private func dismissPopover(for anchor: NSButton) -> Bool {
-        slidingPanel?.dismiss()
-        let wasOpen = popover?.isShown == true && popoverAnchor === anchor
-        popover?.performClose(nil)
-        return wasOpen
-    }
     private func showControls(_ page:TrayPage, above anchor:NSButton) {
         if toggleVisiblePanel(above:anchor) { return }
         guard let shelf = anchor.window as? Bar, let screen = shelf.screen else { return }
@@ -494,33 +483,27 @@ final class Tray: NSObject, NSPopoverDelegate {
         panel.showPanel()
     }
     private func showApplicationGrid(_ entries: [Extra], above anchor: NSButton) {
-        if dismissPopover(for:anchor) { return }
+        if toggleVisiblePanel(above: anchor) { return }
+        guard !entries.isEmpty, let shelf = anchor.window as? Bar, let screen = shelf.screen else { return }
+        weak var presented: SlidingShelfPanel?
         let sorted = entries.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
-        let grid = StatusIconGrid(entries:sorted, open: { [weak self, weak anchor] entry in
+        let grid = StatusIconGrid(entries: sorted, open: { [weak self, weak anchor] entry in
             guard let self, let anchor else { return }
-            self.popover?.performClose(nil)
-            if !entry.app.isTerminated { self.showExtra(entry,above:anchor) }
+            presented?.dismissImmediately()
+            if !entry.app.isTerminated { self.showExtra(entry, above: anchor) }
         }, contextMenu: { [weak self] entry in
-            guard let self else { return NSMenu() }
-            return self.statusContextMenu(entry) { [weak self] in self?.popover?.performClose(nil) }
+            self?.statusContextMenu(entry) { presented?.dismissImmediately() } ?? NSMenu()
         })
-        let panel = NSPopover()
-        panel.animates = false
-        panel.delegate = self
-        panel.behavior = .transient
-        panel.contentViewController = NSHostingController(rootView:grid)
-        panel.contentSize = grid.size
-        popover = panel
-        popoverAnchor = anchor
-        panel.show(relativeTo:anchor.bounds,of:anchor,preferredEdge:owner.bar.edge == .top ? .minY : .maxY)
-        (anchor as? TrayControlButton)?.setExpanded(panel.isShown)
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        guard let closed = notification.object as? NSPopover, closed === popover else { return }
-        (popoverAnchor as? TrayControlButton)?.setExpanded(false)
-        popover = nil
-        popoverAnchor = nil
+        let panel = SlidingShelfPanel(title: Self.gridLabel, card: NSHostingView(rootView: grid),
+                                      beside: anchor, in: shelf, screen: screen,
+                                      cornerRadius: ShelfPanelSurface.cornerRadius)
+        panel.appearance = nil
+        panel.onPresentationChange = { [weak anchor] expanded in
+            (anchor as? TrayControlButton)?.setExpanded(expanded)
+        }
+        presented = panel
+        slidingPanel = panel
+        panel.showPanel()
     }
 
     typealias Control = (label:String,symbol:String?,text:String?,icon:NSImage?,click:(NSButton)->Void)
@@ -562,7 +545,7 @@ final class Tray: NSObject, NSPopoverDelegate {
             controls.append((label,symbol,nil,nil,{ button in self.showControls(page,above:button) }))
         }
         controls.append(("Источник ввода",nil,status.language,nil,{ button in
-            self.popover?.performClose(nil)
+            self.slidingPanel?.dismiss()
             self.inputs(button)
         }))
         controls.append(("Wi-Fi · " + status.wifi.description, nil, nil, status.wifi.trayIcon, { button in
@@ -614,7 +597,9 @@ final class Tray: NSObject, NSPopoverDelegate {
             let b = buttons[i]; b.tag = i; b.toolTip = c.label; b.setAccessibilityLabel(c.label)
             b.title = c.text ?? ""
             let isDisclosure = c.label == Self.gridLabel
-            if !isDisclosure && b === popoverAnchor { popover?.performClose(nil) }
+            if !isDisclosure, let panel = slidingPanel, panel.isVisible, panel.title == Self.gridLabel, panel.anchor === b {
+                panel.dismissImmediately()
+            }
             if isDisclosure { b.image = nil }
             else if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
             else { b.image = c.icon }
