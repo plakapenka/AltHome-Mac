@@ -1065,6 +1065,13 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     func panelMenu() -> NSMenu {
         let m = NSMenu()
+        add(m,"Диспетчер задач", symbol: "waveform.path.ecg") {
+            guard let url = self.ws.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") else {
+                self.notify("Не удалось найти приложение «Мониторинг системы».")
+                return
+            }
+            self.launch(Item(url))
+        }
         add(m,"Настройки TaskShelf…", symbol: "gearshape") { self.showSettings() }
         m.addItem(.separator())
         add(m,"Закрепить приложение…", symbol: "pin") {
