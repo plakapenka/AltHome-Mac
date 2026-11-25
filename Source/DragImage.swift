@@ -45,6 +45,11 @@ final class DragImage {
     func follow(_ point: NSPoint, minimumX: CGFloat = -.infinity) {
         panel.setFrameOrigin(NSPoint(x: max(minimumX, point.x - grab.x), y: point.y - grab.y))
     }
+    func setDropHighlight(_ enabled: Bool) {
+        guard let layer = panel.contentView?.layer else { return }
+        layer.borderColor = NSColor.controlAccentColor.cgColor
+        layer.borderWidth = enabled ? 2 : 0
+    }
     func finish() {
         guard let source, let window = source.window, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             cancel()

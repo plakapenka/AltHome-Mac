@@ -5,7 +5,7 @@ import OpenDirectory
 
 final class StartLibrary: ObservableObject {
     @Published private(set) var apps: [Item] = []
-    @Published private(set) var pins: [Item]
+    @Published private(set) var pins: [StartPin]
     private let defaults: UserDefaults
     private let pinKey = "startMenuPins"
     private var scanGeneration = 0
@@ -13,7 +13,11 @@ final class StartLibrary: ObservableObject {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
-        pins = defaults.data(forKey:pinKey).flatMap { try? JSONDecoder().decode([Item].self, from:$0) } ?? []
+        let data = defaults.data(forKey: pinKey)
+        let decoder = JSONDecoder()
+        pins = data.flatMap { try? decoder.decode([StartPin].self, from: $0) }
+            ?? data.flatMap { try? decoder.decode([Item].self, from: $0) }?.map(StartPin.app)
+            ?? []
     }
 
     func refresh() {
@@ -55,28 +59,99 @@ final class StartLibrary: ObservableObject {
     func didTrash(_ item: Item) {
         scanGeneration += 1
         apps.removeAll { $0.path == item.path }
-        if pins.contains(where: { $0.path == item.path }) {
-            savePins(pins.filter { $0.path != item.path })
-        }
+        removePins { $0.path == item.path }
         refresh()
     }
 
+    func isPinned(_ item: Item) -> Bool {
+        pins.contains { $0.items.contains { $0.key == item.key } }
+    }
+
     func setPinned(_ item: Item, _ pinned: Bool) {
-        guard pins.contains(where:{ $0.key == item.key }) != pinned else { return }
-        var updated = pins.filter { $0.key != item.key }
-        if pinned { updated.append(item) }
+        guard isPinned(item) != pinned else { return }
+        if pinned { savePins(pins + [.app(item)]) }
+        else { removePins { $0.key == item.key } }
+    }
+
+    private func removePins(where matches: (Item) -> Bool) {
+        let updated: [StartPin] = pins.compactMap { pin in
+            switch pin {
+            case .app(let item): return matches(item) ? nil : pin
+            case .folder(var folder):
+                folder.items.removeAll(where: matches)
+                return Self.compacted(folder)
+            }
+        }
         savePins(updated)
     }
 
-    func movePin(_ key: String, to index: Int) {
-        guard let source = pins.firstIndex(where: { $0.key == key }),
-              pins.indices.contains(index), source != index else { return }
+    // A lone remaining app takes its folder's place in the grid.
+    private static func compacted(_ folder: StartFolder) -> StartPin? {
+        folder.items.count > 1 ? .folder(folder) : folder.items.first.map(StartPin.app)
+    }
+
+    func folder(_ key: String?) -> StartFolder? {
+        guard let key, case .folder(let folder) = pins.first(where: { $0.key == key }) else { return nil }
+        return folder
+    }
+
+    func movePin(_ key: String, to index: Int, in folderKey: String?) {
         var updated = pins
-        updated.insert(updated.remove(at: source), at: index)
+        if let folderKey {
+            guard let i = updated.firstIndex(where: { $0.key == folderKey }), case .folder(var folder) = updated[i],
+                  let source = folder.items.firstIndex(where: { $0.key == key }),
+                  folder.items.indices.contains(index), source != index else { return }
+            folder.items.insert(folder.items.remove(at: source), at: index)
+            updated[i] = .folder(folder)
+        } else {
+            guard let source = updated.firstIndex(where: { $0.key == key }),
+                  updated.indices.contains(index), source != index else { return }
+            updated.insert(updated.remove(at: source), at: index)
+        }
         savePins(updated)
     }
 
-    private func savePins(_ updated: [Item]) {
+    func group(_ key: String, with target: String) {
+        guard key != target, case .app(let item) = pins.first(where: { $0.key == key }) else { return }
+        var updated = pins.filter { $0.key != key }
+        guard let index = updated.firstIndex(where: { $0.key == target }) else { return }
+        switch updated[index] {
+        case .app(let other): updated[index] = .folder(StartFolder(items: [other, item]))
+        case .folder(var folder):
+            folder.items.append(item)
+            updated[index] = .folder(folder)
+        }
+        savePins(updated)
+    }
+
+    func renameFolder(_ key: String, to name: String) {
+        let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, let index = pins.firstIndex(where: { $0.key == key }),
+              case .folder(var folder) = pins[index] else { return }
+        folder.name = title
+        var updated = pins
+        updated[index] = .folder(folder)
+        savePins(updated)
+    }
+
+    func extract(_ item: Item, from key: String) {
+        guard let index = pins.firstIndex(where: { $0.key == key }), case .folder(var folder) = pins[index],
+              let member = folder.items.firstIndex(where: { $0.key == item.key }) else { return }
+        let extracted = folder.items.remove(at: member)
+        var updated = pins
+        updated.replaceSubrange(index...index, with: [Self.compacted(folder), .app(extracted)].compactMap { $0 })
+        savePins(updated)
+    }
+
+    func dissolve(_ key: String) {
+        guard let index = pins.firstIndex(where: { $0.key == key }), case .folder(let folder) = pins[index] else { return }
+        var updated = pins
+        updated.replaceSubrange(index...index, with: folder.items.map(StartPin.app))
+        savePins(updated)
+    }
+
+    private func savePins(_ updated: [StartPin]) {
+        guard pins != updated else { return }
         guard let data = try? JSONEncoder().encode(updated) else { return }
         defaults.set(data, forKey:pinKey)
         pins = updated
@@ -211,6 +286,10 @@ struct StartMenu: View {
     @FocusState private var searchFocused: Bool
     @State private var query = ""
     @State private var hover: String?
+    @State private var folderKey: String?
+    @State private var editingName = false
+    @State private var draftName = ""
+    @FocusState private var nameFocused: Bool
 
     private func icon(_ item: Item, _ side: CGFloat) -> some View {
         Image(nsImage:NSWorkspace.shared.icon(forFile:item.path)).renderingMode(.original)
@@ -218,7 +297,7 @@ struct StartMenu: View {
     }
 
     private func row(_ item: Item) -> some View {
-        let pinned = library.pins.contains { $0.key == item.key }
+        let pinned = library.isPinned(item)
         let pinLabel = pinned ? "Открепить" : "Закрепить"
         return Button { launch(item) } label: {
             HStack(spacing:9) {
@@ -242,6 +321,69 @@ struct StartMenu: View {
 
     private func updateHover(_ key: String, _ inside: Bool) {
         if inside { hover = key } else if hover == key { hover = nil }
+    }
+
+    private func folderHeader(_ folder: StartFolder, key: String) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                folderKey = nil
+                editingName = false
+            } label: { Image(systemName: "chevron.left") }
+                .accessibilityLabel("Назад к закреплённым")
+            if editingName {
+                TextField("Название папки", text: $draftName)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($nameFocused)
+                    .onAppear { nameFocused = true }
+                    .onSubmit { finishRename(key) }
+                    .onExitCommand { editingName = false }
+                Button { finishRename(key) } label: { Image(systemName: "checkmark") }
+                    .accessibilityLabel("Сохранить название")
+            } else {
+                Text(folder.name).font(.headline).lineLimit(1)
+                Spacer(minLength: 0)
+                Button {
+                    draftName = folder.name
+                    editingName = true
+                } label: { Image(systemName: "pencil") }
+                    .accessibilityLabel("Переименовать папку")
+            }
+        }.buttonStyle(.borderless).frame(height: 26)
+    }
+
+    private func finishRename(_ key: String) {
+        library.renameFolder(key, to: draftName)
+        editingName = false
+    }
+
+    private func pinnedArea(width: CGFloat, height: CGFloat) -> some View {
+        let folder = library.folder(folderKey)
+        let key = folder.map { StartPin.folder($0).key }
+        let entries = folder?.items.map(StartPin.app) ?? library.pins
+        return VStack(alignment: .leading, spacing: 8) {
+            if let folder, let key { folderHeader(folder, key: key) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if entries.isEmpty {
+                        Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
+                            .font(.callout).foregroundStyle(.secondary).padding(.top, 8)
+                    }
+                    StartPinGrid(pins: entries, open: { pin in
+                        switch pin {
+                        case .app(let item): launch(item)
+                        case .folder: editingName = false; folderKey = pin.key
+                        }
+                    }, unpin: { library.setPinned($0, false) },
+                       extract: key.map { key in { library.extract($0, from: key) } },
+                       dissolve: library.dissolve, group: key == nil ? library.group : nil,
+                       move: { library.movePin($0, to: $1, in: key) })
+                        .frame(height: StartPinGrid.height(count: entries.count, width: width))
+                    Color.clear.frame(maxWidth: .infinity, minHeight: 12, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .contextMenu { if key == nil { Button("Добавить программу…", action: browse) } }
+                }.frame(minHeight: max(0, height - (key == nil ? 0 : 34)), alignment: .topLeading)
+            }.id(key)
+        }
     }
 
     var body: some View {
@@ -273,20 +415,7 @@ struct StartMenu: View {
                 }.frame(maxWidth:.infinity)
                 Divider()
                 GeometryReader { area in
-                    ScrollView {
-                        VStack(alignment:.leading,spacing:0) {
-                            if library.pins.isEmpty {
-                                Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
-                                    .font(.callout).foregroundStyle(.secondary).padding(.top,8)
-                            }
-                            StartPinGrid(pins: library.pins, launch: launch,
-                                         unpin: { library.setPinned($0, false) }, move: library.movePin)
-                                .frame(height: StartPinGrid.height(count: library.pins.count, width: area.size.width))
-                            Color.clear.frame(maxWidth:.infinity,minHeight:12,maxHeight:.infinity)
-                                .contentShape(Rectangle())
-                                .contextMenu { Button("Добавить программу…", action:browse) }
-                        }.frame(minHeight:area.size.height,alignment:.topLeading)
-                    }
+                    pinnedArea(width: area.size.width, height: area.size.height)
                 }.frame(maxWidth:.infinity)
             }.padding(16).frame(maxHeight:.infinity)
             Divider()
