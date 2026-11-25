@@ -522,7 +522,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 guard self.bar.frame.height == (compact ? 36 : 50),
                       tile.frame.height == self.bar.sizing.tileHeight,
                       tile.subviews.filter({ !$0.isHidden }).allSatisfy({ tile.bounds.contains($0.frame) }),
-                      tile.subviews.compactMap({ $0 as? NSImageView }).first?.frame.height == (small ? 20 : 30),
+                      tile.subviews.compactMap({ $0 as? NSImageView }).first?.frame.height == (small ? 28 : 30),
                       self.bar.surface.bounds.contains(self.clockLabel.frame),
                       self.tray.buttons.allSatisfy({ self.bar.surface.bounds.contains($0.frame) }) else { exit(19) }
                 print("PASS: shelf height", self.bar.frame.height, "small icons:", small)

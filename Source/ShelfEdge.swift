@@ -9,7 +9,7 @@ struct ShelfSizing: Equatable {
     var height: CGFloat { compactHeight ? 36 : 50 }
     var tileInset: CGFloat { compactHeight ? 1 : 3 }
     var tileHeight: CGFloat { height - 2 * tileInset }
-    var iconSize: CGFloat { largeIcons ? 30 : 20 }
+    var iconSize: CGFloat { largeIcons ? 30 : 28 }
     var pinWidth: CGFloat { largeIcons ? 48 : 36 }
     var captionX: CGFloat { largeIcons ? 44 : 32 }
     var trayWidth: CGFloat { largeIcons ? 32 : 28 }
