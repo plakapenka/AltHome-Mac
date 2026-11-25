@@ -183,6 +183,7 @@ extension Delegate {
             let owner = Unmanaged<Delegate>.fromOpaque(context).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 owner.zoomCheck?.cancel()
+                owner.snap.cancel()
                 owner.firstTitleClick = nil
                 owner.titleBarClick = nil
                 owner.chatTitleDrag = nil
@@ -202,12 +203,16 @@ extension Delegate {
 
     private func handleTitleBarMouse(_ type: CGEventType, _ event: CGEvent) {
         if type == .leftMouseDown {
+            snap.mouseDown(at: event.location)
             zoomCheck?.cancel()
             titleBarClick = nil
             chatTitleDrag = nil
             guard event.flags.intersection([.maskCommand,.maskAlternate,.maskControl,.maskShift]).isEmpty else { return }
             let count = event.getIntegerValueField(.mouseEventClickState)
-            if count == 1 { firstTitleClick = FirstTitleClick(at: event.location) }
+            if count == 1 {
+                firstTitleClick = FirstTitleClick(at: event.location)
+                if let firstTitleClick { snap.begin(firstTitleClick) }
+            }
             if count == 1, ws.frontmostApplication?.bundleIdentifier == "com.openai.codex",
                let click = chatDragTarget(at:event.location) {
                 chatTitleDrag = ChatTitleDrag(click:click,started:ProcessInfo.processInfo.systemUptime)
@@ -226,6 +231,9 @@ extension Delegate {
             if hypot(event.location.x-click.point.x, event.location.y-click.point.y) <= 4 {
                 resolveZoomWindow(click, attempt: 0)
             }
+        }
+        if type == .leftMouseDragged || type == .leftMouseUp {
+            snap.track(event.location, ending: type == .leftMouseUp, owner: self)
         }
     }
 

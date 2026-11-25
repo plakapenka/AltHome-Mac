@@ -427,6 +427,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     var firstTitleClick: FirstTitleClick?
     var titleBarClick: FirstTitleClick?
     var chatTitleDrag: ChatTitleDrag?
+    let snap = WindowSnap()
     var timer: Timer?
     let timeFormatter = DateFormatter()
     let dateFormatter = DateFormatter()
@@ -642,6 +643,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func activeSpaceChanged() {
+        snap.cancel()
         refresh()
         scheduleMaximizedWindowFit()
     }
