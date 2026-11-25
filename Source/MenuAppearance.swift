@@ -1,7 +1,7 @@
 import SwiftUI
 
 final class ShelfBackdrop: NSVisualEffectView {
-    static let tint = NSColor.black.withAlphaComponent(0.16)
+    static let tint = NSColor.black.withAlphaComponent(0.58)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
