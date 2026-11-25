@@ -428,6 +428,86 @@ private struct SoundControls: View {
     }
 }
 
+private struct WirelessTabs: View {
+    @Binding var selection: TrayPage
+    @State private var hovered: TrayPage?
+    @FocusState private var focused: TrayPage?
+    @Namespace private var highlight
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let tabs: [TrayPage] = [.wifi, .bluetooth, .airDrop]
+
+    @ViewBuilder
+    private func icon(for tab: TrayPage) -> some View {
+        if tab == .airDrop {
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let unit = min(size.width, size.height) / 16
+                for radius: CGFloat in [3, 5.2, 7.4] {
+                    var ring = Path()
+                    ring.addArc(center: center, radius: radius * unit, startAngle: .degrees(124),
+                                endAngle: .degrees(416), clockwise: false)
+                    context.stroke(ring, with: .foreground, style: StrokeStyle(lineWidth: unit, lineCap: .round))
+                }
+                context.fill(Path(ellipseIn: CGRect(x: center.x - unit, y: center.y - unit,
+                                                   width: 2 * unit, height: 2 * unit)), with: .foreground)
+            }
+        } else if tab == .bluetooth, let image = NSImage(named: NSImage.bluetoothTemplateName) {
+            Image(nsImage: image).renderingMode(.template).resizable().scaledToFit()
+        } else {
+            Image(systemName: tab == .wifi ? "wifi" : "antenna.radiowaves.left.and.right")
+                .resizable().scaledToFit()
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Self.tabs, id: \.self) { tab in
+                let selected = selection == tab
+                Button { selection = tab } label: {
+                    HStack(spacing: 5) {
+                        icon(for: tab).frame(width: 16, height: 16)
+                            .foregroundStyle(selected ? Color.accentColor : .secondary)
+                        Text(tab.rawValue)
+                            .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity).frame(height: 33)
+                    .background {
+                        if selected {
+                            Capsule().fill(Color.primary.opacity(0.12))
+                                .matchedGeometryEffect(id: "selection", in: highlight)
+                        } else if hovered == tab {
+                            Capsule().fill(Color.primary.opacity(0.06))
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .focused($focused, equals: tab)
+                .onHover { inside in
+                    if inside { hovered = tab } else if hovered == tab { hovered = nil }
+                }
+                .accessibilityLabel(tab.rawValue)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .onMoveCommand { direction in
+            guard let focused, let index = Self.tabs.firstIndex(of: focused) else { return }
+            let next: Int
+            switch direction {
+            case .left: next = index - 1
+            case .right: next = index + 1
+            default: return
+            }
+            guard Self.tabs.indices.contains(next) else { return }
+            selection = Self.tabs[next]
+            self.focused = selection
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selection)
+    }
+}
+
 struct TrayControls: View {
     let display: CGDirectDisplayID
     let initialPage: TrayPage
@@ -440,14 +520,8 @@ struct TrayControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if initialPage == .wifi {
-                Picker("Беспроводные подключения", selection: $wirelessPage) {
-                    ForEach([TrayPage.wifi, .bluetooth, .airDrop], id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 4)
+                WirelessTabs(selection: $wirelessPage)
+                    .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 4)
             }
 
             Group {
