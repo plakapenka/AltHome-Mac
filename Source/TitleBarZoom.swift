@@ -193,7 +193,7 @@ extension Delegate {
             }
             return Unmanaged.passUnretained(event)
         }
-        guard let tap = CGEvent.tapCreate(tap:.cgSessionEventTap,place:.headInsertEventTap,options:.defaultTap,
+        guard let tap = CGEvent.tapCreate(tap:.cgSessionEventTap,place:.headInsertEventTap,options:.listenOnly,
                                          eventsOfInterest:CGEventMask(mask),callback:callback,
                                          userInfo:Unmanaged.passUnretained(self).toOpaque()) else { return }
         zoomMonitor = tap
@@ -213,8 +213,9 @@ extension Delegate {
                 firstTitleClick = FirstTitleClick(at: event.location)
                 if let firstTitleClick { snap.begin(firstTitleClick) }
             }
-            if count == 1, ws.frontmostApplication?.bundleIdentifier == "com.openai.codex",
-               let click = chatDragTarget(at:event.location) {
+            if count == 1, let first = firstTitleClick, event.location.y - first.frame.minY < 36,
+               let front = ws.frontmostApplication, front.processIdentifier == first.pid,
+               front.bundleIdentifier == "com.openai.codex", let click = chatDragTarget(at:event.location) {
                 chatTitleDrag = ChatTitleDrag(click:click,started:ProcessInfo.processInfo.systemUptime)
             }
             if count == 2 {
