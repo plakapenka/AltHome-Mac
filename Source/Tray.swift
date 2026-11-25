@@ -530,6 +530,7 @@ final class Tray: NSObject {
     func layout(_ width:CGFloat) -> CGFloat {
         let status = Status()
         lastStatus = status
+        let sizing = owner.bar.sizing
         let edgeWidth = min(width * 0.45, 440)
         dockEdge.frame = NSRect(x: (width - edgeWidth) / 2, y: 0, width: edgeWidth, height: 3)
         dockEdge.isHidden = !dockEnabled
@@ -538,7 +539,8 @@ final class Tray: NSObject {
             layoutPinnedDock()
             if dockVisible || dockMirror.entries.isEmpty { dockMirror.refresh() }
         }
-        apple.frame = NSRect(x: 4, y: 2, width: 52, height: 46)
+        apple.frame = NSRect(x: 4, y: 2, width: sizing.compact ? 40 : 52, height: sizing.height - 4)
+        apple.setGlyphSize(sizing.compact ? 20 : 26)
         scan()
         var controls: [Control] = []
         func system(_ page:TrayPage, _ label:String, _ symbol:String) {
@@ -573,7 +575,7 @@ final class Tray: NSObject {
             controls.append((extra.label,nil,nil,icon,
                              { button in self.showExtra(extra,above:button) }))
         }
-        let slots = max(2,Int(width*0.32/32))
+        let slots = max(2,Int(width*0.32/sizing.trayWidth))
         if controls.count > slots {
             let overflow = Array(controls.dropFirst(slots-1))
             controls = Array(controls.prefix(slots-1))
@@ -592,7 +594,7 @@ final class Tray: NSObject {
             b.target = self; b.action = #selector(invoke(_:)); surface.addSubview(b); buttons.append(b)
         }
         while buttons.count > controls.count { buttons.removeLast().removeFromSuperview() }
-        let left = owner.clockLabel.frame.minX-4-CGFloat(controls.count)*32
+        let left = owner.clockLabel.frame.minX-4-CGFloat(controls.count)*sizing.trayWidth
         for (i,c) in controls.enumerated() {
             let b = buttons[i]; b.tag = i; b.toolTip = c.label; b.setAccessibilityLabel(c.label)
             b.title = c.text ?? ""
@@ -603,7 +605,15 @@ final class Tray: NSObject {
             if isDisclosure { b.image = nil }
             else if let symbol = c.symbol { b.image = NSImage(systemSymbolName:symbol,accessibilityDescription:c.label) }
             else { b.image = c.icon }
-            b.frame = NSRect(x:left+CGFloat(i)*32,y:7,width:32,height:36)
+            if sizing.compact, let image = b.image {
+                if let symbol = image.withSymbolConfiguration(.init(pointSize: 11, weight: .regular)) {
+                    b.image = symbol
+                } else if let small = image.copy() as? NSImage {
+                    small.size = NSSize(width: image.size.width * 0.85, height: image.size.height * 0.85)
+                    b.image = small
+                }
+            }
+            b.frame = NSRect(x:left+CGFloat(i)*sizing.trayWidth,y:sizing.controlY,width:sizing.trayWidth,height:sizing.controlHeight)
             b.setDisclosureVisible(isDisclosure, symbol: arrow)
         }
         return left

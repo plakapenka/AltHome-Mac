@@ -10,13 +10,7 @@ final class StartButton: ShelfButton {
         title = ""
         setAccessibilityLabel("Пуск")
         toolTip = "Пуск"
-        let font = NSFont.systemFont(ofSize:26,weight:.medium)
-        if let symbol = NSImage(systemSymbolName:"apple.logo",accessibilityDescription:nil) {
-            glyph.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize,weight:.medium)) ?? symbol
-        } else {
-            let mark = NSAttributedString(string:"",attributes:[.font:font,.foregroundColor:NSColor.white])
-            glyph.image = NSImage(size:mark.size(),flipped:false) { _ in mark.draw(at:.zero); return true }
-        }
+        setGlyphSize(26)
         glyph.contentTintColor = .white
         glyph.imageScaling = .scaleNone
         glyph.frame = bounds
@@ -24,6 +18,19 @@ final class StartButton: ShelfButton {
         glyph.wantsLayer = true
         glyph.setAccessibilityElement(false)
         addSubview(glyph)
+    }
+
+    private var glyphSize: CGFloat = 0
+    func setGlyphSize(_ pointSize: CGFloat) {
+        guard glyphSize != pointSize else { return }
+        glyphSize = pointSize
+        let font = NSFont.systemFont(ofSize:pointSize,weight:.medium)
+        if let symbol = NSImage(systemSymbolName:"apple.logo",accessibilityDescription:nil) {
+            glyph.image = symbol.withSymbolConfiguration(.init(pointSize:font.pointSize,weight:.medium)) ?? symbol
+        } else {
+            let mark = NSAttributedString(string:"",attributes:[.font:font,.foregroundColor:NSColor.white])
+            glyph.image = NSImage(size:mark.size(),flipped:false) { _ in mark.draw(at:.zero); return true }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }

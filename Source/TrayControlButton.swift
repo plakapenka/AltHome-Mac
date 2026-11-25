@@ -15,7 +15,8 @@ final class TrayControlButton: ShelfButton {
             }
             return
         }
-        guard chevron.superlayer == nil || symbolName != symbol, let layer else { return }
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        guard chevron.superlayer == nil || symbolName != symbol || chevron.position != center, let layer else { return }
         symbolName = symbol
         let scale = window?.backingScaleFactor ?? 2
         let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
@@ -23,7 +24,7 @@ final class TrayControlButton: ShelfButton {
         guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(configuration) else { return }
         chevron.bounds = CGRect(origin: .zero, size: glyph.size)
-        chevron.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        chevron.position = center
         chevron.contentsScale = scale
         chevron.contents = glyph.layerContents(forContentsScale: scale)
         layer.addSublayer(chevron)

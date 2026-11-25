@@ -1,13 +1,27 @@
 import AppKit
 
+struct ShelfSizing: Equatable {
+    static let preference = "largeShelfIcons"
+    let compact: Bool
+
+    var height: CGFloat { compact ? 36 : 50 }
+    var tileHeight: CGFloat { height - 6 }
+    var iconSize: CGFloat { compact ? 20 : 30 }
+    var pinWidth: CGFloat { compact ? 36 : 48 }
+    var captionX: CGFloat { compact ? 32 : 44 }
+    var trayWidth: CGFloat { compact ? 28 : 32 }
+    var controlHeight: CGFloat { compact ? 30 : 36 }
+    var controlY: CGFloat { (height - controlHeight) / 2 }
+}
+
 enum ShelfEdge: String {
     case bottom, top
 
-    func shelfFrame(on screen: NSScreen) -> CGRect {
+    func shelfFrame(on screen: NSScreen, height: CGFloat) -> CGRect {
         let visible = screen.visibleFrame
         let top = min(visible.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
-        return CGRect(x: visible.minX, y: self == .top ? top - 50 : screen.frame.minY,
-                      width: visible.width, height: 50)
+        return CGRect(x: visible.minX, y: self == .top ? top - height : screen.frame.minY,
+                      width: visible.width, height: height)
     }
 
     func availableFrame(in visible: CGRect, beside shelf: CGRect, inset: CGFloat = 0) -> CGRect {

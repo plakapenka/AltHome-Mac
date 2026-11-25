@@ -15,6 +15,7 @@ private struct ShelfSettings: View {
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
     @AppStorage("blurShelfBackground") private var blurShelfBackground = false
     @AppStorage("shelfEdge") private var shelfEdge = ShelfEdge.bottom
+    @AppStorage(ShelfSizing.preference) private var largeIcons = true
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("dockMode") private var dockMode = DockMode.system
     @AppStorage("dockPinned") private var dockPinned = false
@@ -84,6 +85,9 @@ private struct ShelfSettings: View {
                                 Text("Сверху").tag(ShelfEdge.top)
                             }.pickerStyle(.segmented)
                             .onChange(of: shelfEdge) { _ in owner.render() }
+                            Toggle("Крупные значки", isOn: $largeIcons)
+                                .onChange(of: largeIcons) { _ in owner.render() }
+                                .help("С крупными значками видны заголовки окон. Выключите, чтобы показывать только маленькие значки.")
                             Toggle("Прозрачный фон с размытием", isOn: $blurShelfBackground)
                                 .onChange(of: blurShelfBackground) { _ in owner.updateShelfAppearance() }
                                 .help("Меняет фон панели и меню «Пуск». При уменьшении прозрачности в macOS фон остаётся сплошным.")
