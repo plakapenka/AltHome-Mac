@@ -9,6 +9,7 @@ private enum SettingsPage: String, CaseIterable {
 private struct ShelfSettings: View {
     unowned let owner: Delegate
     @State private var page: SettingsPage? = .general
+    @AppStorage(ScreenshotShortcut.preference) private var screenshotEnabled = false
     @AppStorage("fnCommandLetters") private var fnCommandLetters = false
     @AppStorage("layoutShortcutMode") private var layoutShortcutMode: String?
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
@@ -110,6 +111,14 @@ private struct ShelfSettings: View {
                                 fnCommandLetters = enabled
                             }))
                             .help("Fn+C копирует, Fn+V вставляет, Fn+Z отменяет действие. Одиночное Fn выполняет действие из настроек macOS.")
+                            Toggle("Снимок области по ⌥ Option + ⇧ Shift + S", isOn: Binding(get: { screenshotEnabled }, set: { enabled in
+                                guard owner.screenshotShortcut.setEnabled(enabled) else {
+                                    owner.notify(Delegate.screenshotShortcutUnavailable)
+                                    return
+                                }
+                                screenshotEnabled = enabled
+                            }))
+                            .help("Выделите область мышью, чтобы скопировать её в буфер обмена. Esc отменяет снимок.")
                             Toggle("Блокировать строку меню при наведении", isOn: Binding(get: { blockMenuBarHover }, set: { enabled in
                                 if enabled {
                                     guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
@@ -161,6 +170,8 @@ private struct ShelfSettings: View {
 }
 
 extension Delegate {
+    static let screenshotShortcutUnavailable = "Не удалось зарегистрировать ⌥⇧S. Проверьте, свободно ли сочетание, и включите его снова."
+
     func showSettings() {
         if settingsWindow == nil {
             let view = ShelfSettings(owner: self).defaultAppStorage(defaults)

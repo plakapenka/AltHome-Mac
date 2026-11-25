@@ -399,6 +399,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     let desktop = ShowDesktop()
     let menuBarEdge = MenuBarEdge()
     let fnCommand = FnCommand()
+    lazy var screenshotShortcut = ScreenshotShortcut { [weak self] in self?.notify($0) }
     lazy var layoutShortcut = LayoutShortcut { [weak self] in self?.tray.nextInputLanguage() }
     let clockLabel = ShelfButton(frame:.zero)
     lazy var tray = Tray(self)
@@ -481,6 +482,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         glass.addSubview(desktopButton)
         tray.install(glass)
         if !CommandLine.arguments.contains("--ui-check") {
+            if defaults.bool(forKey: ScreenshotShortcut.preference) && !screenshotShortcut.setEnabled(true) {
+                defaults.set(false, forKey: ScreenshotShortcut.preference)
+                DispatchQueue.main.async { self.notify(Self.screenshotShortcutUnavailable) }
+            }
             let mode = DockMode.saved(in: defaults)
             tray.configureDock(mode == .taskShelf && !AXIsProcessTrusted() ? .system : mode)
         }
@@ -608,6 +613,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         monitors.removeAll()
         _ = fnCommand.setEnabled(false)
         layoutShortcut.stop()
+        _ = screenshotShortcut.setEnabled(false)
         menuBarEdge.stop()
         if !CommandLine.arguments.contains("--ui-check") {
             _ = SystemDockVisibility.apply(hidden: false, defaults: defaults)
