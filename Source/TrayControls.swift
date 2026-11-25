@@ -45,12 +45,26 @@ private struct WirelessSwitch: View {
     let title: String
     @Binding var isOn: Bool
 
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Toggle(title, isOn: $isOn)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .tint(.blue)
-            .environment(\.controlActiveState, .active)
+        Toggle(isOn: $isOn) {
+            Capsule()
+                .fill(isOn ? Color(nsColor: .systemBlue) : Color.secondary.opacity(0.34))
+                .frame(width: 44, height: 23)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Capsule().fill(.white)
+                        .frame(width: 23, height: 19)
+                        .shadow(color: .black.opacity(0.18), radius: 1, y: 1)
+                        .padding(.horizontal, 2)
+                }
+                .opacity(isEnabled ? 1 : 0.5)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isOn)
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.plain)
+        .accessibilityRepresentation { Toggle(title, isOn: $isOn).toggleStyle(.switch) }
     }
 }
 
