@@ -95,12 +95,14 @@ class ShelfMenuSurface: NSView {
 }
 
 final class ShelfBackground: ShelfMenuSurface {
-    override var isOpaque: Bool { true }
+    static let solidColor = NSColor(srgbRed: 0.115, green: 0.12, blue: 0.13, alpha: 1)
+    var blurred = false
+    override var isOpaque: Bool { !blurred }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(srgbRed:0.115,green:0.12,blue:0.13,alpha:1).setFill()
+        (blurred ? NSColor.black.withAlphaComponent(0.16) : Self.solidColor).setFill()
         dirtyRect.fill()
         let pixel = 1 / (window?.backingScaleFactor ?? 1)
-        NSColor(white:0.24,alpha:1).setFill()
+        (blurred ? NSColor.white.withAlphaComponent(0.16) : NSColor(white:0.24,alpha:1)).setFill()
         let lineY = (window as? Bar)?.edge == .top ? bounds.minY : bounds.maxY - pixel
         NSRect(x:0,y:lineY,width:bounds.width,height:pixel).fill()
     }
@@ -108,6 +110,30 @@ final class ShelfBackground: ShelfMenuSurface {
 
 final class Bar: NSPanel {
     var edge: ShelfEdge = .bottom
+    let surface = ShelfBackground()
+    private var backdrop: NSVisualEffectView?
+
+    func setBlurred(_ blurred: Bool) {
+        guard let root = contentView else { return }
+        isOpaque = !blurred
+        backgroundColor = blurred ? .clear : ShelfBackground.solidColor
+        if blurred, backdrop == nil {
+            let effect = NSVisualEffectView(frame: root.bounds)
+            effect.autoresizingMask = [.width, .height]
+            effect.blendingMode = .behindWindow
+            effect.material = .hudWindow
+            effect.state = .active
+            root.addSubview(effect, positioned: .below, relativeTo: surface)
+            backdrop = effect
+        } else if !blurred {
+            backdrop?.removeFromSuperview()
+            backdrop = nil
+        }
+        surface.blurred = blurred
+        surface.layer?.isOpaque = !blurred
+        surface.needsDisplay = true
+    }
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -230,7 +256,7 @@ final class Tile: ShelfButton {
         highlight(false)
         if !dragging, let window {
             dragImage = DragImage(source: self, down: window.convertPoint(toScreen: pressPoint),
-                                  backgroundColor: window.backgroundColor)
+                                  backgroundColor: ShelfBackground.solidColor)
         }
         dragging = true
         if let window {
@@ -414,19 +440,25 @@ final class Delegate: NSObject, NSApplicationDelegate {
         if let data = defaults.data(forKey:"pins"), let saved = try? JSONDecoder().decode([Item].self,from:data) { pins = saved }
         bar = Bar(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         bar.isReleasedWhenClosed = false
-        bar.isOpaque = true
         bar.hasShadow = false
-        bar.backgroundColor = NSColor(srgbRed:0.115,green:0.12,blue:0.13,alpha:1)
         bar.level = .floating
         bar.hidesOnDeactivate = false
         // Keep the shelf in place when a wallpaper click invokes Show Desktop.
         bar.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary, .canJoinAllApplications]
         bar.appearance = NSAppearance(named:.darkAqua)
-        let glass = ShelfBackground()
+        let glass = bar.surface
         glass.makeMenu = { [weak self] in self?.panelMenu() }
         strip.makeMenu = glass.makeMenu
         glass.wantsLayer = true
-        bar.contentView = glass
+        let root = NSView()
+        root.wantsLayer = true
+        bar.contentView = root
+        glass.frame = root.bounds
+        glass.autoresizingMask = [.width, .height]
+        root.addSubview(glass)
+        updateShelfAppearance()
+        ws.notificationCenter.addObserver(self, selector: #selector(updateShelfAppearance),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         scroll.drawsBackground = false
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -483,6 +515,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
                       self.tray.buttons.contains(where: { $0.toolTip?.hasPrefix("Wi-Fi · ") == true && $0.image != nil }),
                       self.bar.contentView?.layer?.cornerRadius == 0
                 else { exit(9) }
+                let blurred = self.defaults.bool(forKey: "blurShelfBackground") && !self.ws.accessibilityDisplayShouldReduceTransparency
+                guard let root = self.bar.contentView,
+                      self.bar.isOpaque == !blurred, self.bar.surface.isOpaque == !blurred,
+                      self.bar.surface.frame == root.bounds,
+                      root.hitTest(NSPoint(x: 1, y: 1)) === self.bar.surface,
+                      self.bar.alphaValue == 1 else { exit(15) }
+                let effects = root.subviews.compactMap { $0 as? NSVisualEffectView }
+                if blurred {
+                    guard effects.count == 1, let effect = effects.first, effect === root.subviews.first,
+                          effect.frame == root.bounds, effect.blendingMode == .behindWindow else { exit(16) }
+                } else if !effects.isEmpty { exit(17) }
+                print("PASS: shelf background and hit testing, blur:", blurred)
                 print("PASS: Apple menu, input source, Wi-Fi, square panel, separate task and tray areas")
                 let edge = self.bar.edge
                 let usable = self.usableFrame(on: screen)
@@ -671,6 +715,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let width = max(54, ceil(title.size().width) + 12)
         clockLabel.frame = NSRect(x:rightEdge-width, y:7, width:width, height:36)
     }
+    @objc func updateShelfAppearance() {
+        bar.setBlurred(defaults.bool(forKey: "blurShelfBackground") && !ws.accessibilityDisplayShouldReduceTransparency)
+    }
+
     func render() {
         layoutControls()
         renderTasks()
@@ -686,7 +734,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             bar.edge = edge
             geometry = frame
             bar.setFrame(frame, display: true)
-            bar.contentView?.needsDisplay = true
+            bar.surface.needsDisplay = true
             if let previous {
                 tray.layoutPinnedDock()
                 refitWindows(from: previous, on: screen)

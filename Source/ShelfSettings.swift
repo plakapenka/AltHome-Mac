@@ -12,6 +12,7 @@ private struct ShelfSettings: View {
     @AppStorage("fnCommandLetters") private var fnCommandLetters = false
     @AppStorage("layoutShortcutMode") private var layoutShortcutMode: String?
     @AppStorage("blockMenuBarHover") private var blockMenuBarHover = false
+    @AppStorage("blurShelfBackground") private var blurShelfBackground = false
     @AppStorage("shelfEdge") private var shelfEdge = ShelfEdge.bottom
     @AppStorage("showDate") private var showsDate = true
     @AppStorage("dockMode") private var dockMode = DockMode.system
@@ -82,6 +83,9 @@ private struct ShelfSettings: View {
                                 Text("Сверху").tag(ShelfEdge.top)
                             }.pickerStyle(.segmented)
                             .onChange(of: shelfEdge) { _ in owner.render() }
+                            Toggle("Прозрачный фон с размытием", isOn: $blurShelfBackground)
+                                .onChange(of: blurShelfBackground) { _ in owner.updateShelfAppearance() }
+                                .help("При включённом в macOS уменьшении прозрачности фон остаётся сплошным.")
                             Toggle("Показывать дату", isOn: $showsDate)
                                 .onChange(of: showsDate) { _ in owner.render() }
                             Picker("Переключение языка", selection: Binding(get: {
