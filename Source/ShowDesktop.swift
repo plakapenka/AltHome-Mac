@@ -1,6 +1,15 @@
 import AppKit
 
 final class DesktopButton: ShelfButton {
+    override func tint() { needsDisplay = true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let width = min(6, bounds.width)
+        NSColor.white.withAlphaComponent(showsHover ? 0.32 : 0.14).setFill()
+        NSRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height).fill()
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
