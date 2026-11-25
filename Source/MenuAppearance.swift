@@ -54,6 +54,20 @@ enum MenuAppearance {
     }
 }
 
+struct ShelfPanelSurface: View {
+    static let cornerRadius: CGFloat = 22
+
+    @ViewBuilder
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(.regularMaterial)
+        }
+    }
+}
+
 struct MenuRowStyle: ButtonStyle {
     var selected = false
 

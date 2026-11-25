@@ -452,9 +452,10 @@ final class Tray: NSObject, NSPopoverDelegate {
         let clock = owner.clockLabel
         if toggleVisiblePanel(above:clock) { return }
         guard let shelf = clock.window as? Bar, let screen = shelf.screen else { return }
-        let calendar = ShelfCalendar()
-        let card = NSHostingView(rootView:calendar.background(Color(nsColor:.windowBackgroundColor)))
-        let panel = SlidingShelfPanel(title:"Календарь",card:card,beside:clock,in:shelf,screen:screen)
+        let card = NSHostingView(rootView: ShelfCalendar())
+        let panel = SlidingShelfPanel(title:"Календарь",card:card,beside:clock,in:shelf,screen:screen,
+                                      cornerRadius: ShelfPanelSurface.cornerRadius)
+        panel.appearance = nil
         slidingPanel = panel
         panel.showPanel()
     }
@@ -486,7 +487,7 @@ final class Tray: NSObject, NSPopoverDelegate {
                 presented?.fitContent(to:size)
             })
         let panel = SlidingShelfPanel(title:page.rawValue,card:card,beside:anchor,in:shelf,screen:screen,
-                                      cornerRadius: TrayControls.cornerRadius)
+                                      cornerRadius: ShelfPanelSurface.cornerRadius)
         panel.appearance = nil
         presented = panel
         slidingPanel = panel

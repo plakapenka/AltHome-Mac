@@ -429,7 +429,6 @@ private struct SoundControls: View {
 }
 
 struct TrayControls: View {
-    static let cornerRadius: CGFloat = 22
     let display: CGDirectDisplayID
     let initialPage: TrayPage
     let wifiUpdates: AnyPublisher<WiFiStatus, Never>
@@ -437,16 +436,6 @@ struct TrayControls: View {
     private var page: TrayPage { initialPage == .wifi ? wirelessPage : initialPage }
     let openAirDrop: () -> Void
     let openSettings: (String)->Void
-
-    @ViewBuilder
-    private var surface: some View {
-        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-        if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular, in: shape)
-        } else {
-            shape.fill(.regularMaterial)
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -498,6 +487,6 @@ struct TrayControls: View {
         }
         .frame(width: 336)
         .fixedSize(horizontal: false, vertical: true)
-        .background { surface }
+        .background { ShelfPanelSurface() }
     }
 }

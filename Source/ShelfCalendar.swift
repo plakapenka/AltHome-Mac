@@ -53,12 +53,12 @@ struct ShelfCalendar: View {
         let inMonth = calendar.isDate(day,equalTo:displayed,toGranularity:.month)
         return Button { choose(day) } label: {
             Text(String(calendar.component(.day,from:day)))
-                .font(.system(size:13,weight:isToday || isSelected ? .semibold : .regular))
+                .font(.system(size:13,weight:isToday || isSelected ? .bold : .regular))
                 .monospacedDigit()
-                .foregroundStyle(isToday ? Color.black : Color.primary.opacity(inMonth ? 1 : 0.46))
+                .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : (inMonth ? Color.primary : Color.secondary))
                 .frame(width:30,height:30)
-                .background(Circle().fill(isToday ? Self.highlight : Color.primary.opacity(hovered == day ? 0.11 : 0)))
-                .overlay(Circle().strokeBorder(Self.highlight.opacity(isSelected && !isToday ? 0.9 : 0),lineWidth:1.5))
+                .background(Circle().fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : Color.primary.opacity(hovered == day ? 0.11 : 0)))
+                .overlay(Circle().strokeBorder(Color.accentColor.opacity(isToday && !isSelected ? 1 : 0),lineWidth:1.5))
                 .frame(maxWidth:.infinity).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -74,43 +74,35 @@ struct ShelfCalendar: View {
         format: "\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits):\(second: .twoDigits)",
         timeZone: .autoupdatingCurrent, calendar: .autoupdatingCurrent
     )
-    private static let highlight = MenuAppearance.sky
 
     var body: some View {
         VStack(spacing:0) {
-            HStack {
-                VStack(alignment:.leading,spacing:2) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(formatted(selected,.dateTime.weekday(.wide)).capitalized(with:Self.locale))
-                        .font(.system(size:12,weight:.medium)).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Text(formatted(selected,.dateTime.day().month(.wide)))
-                        .font(.system(size:30,weight:.semibold)).tracking(-0.8)
+                        .font(.system(size: 26, weight: .semibold))
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    TimelineView(.periodic(from: .now, by: 1)) { tick in
-                        Text(tick.date.formatted(Self.clockFormat))
-                            .font(.system(size: 16, weight: .medium)).monospacedDigit()
-                            .fixedSize()
-                    }
-                    Button { choose(Date()) } label: {
-                        Text("Сегодня").font(.system(size:12,weight:.medium))
-                            .padding(.horizontal,10).padding(.vertical,5)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                            .contentShape(Capsule())
-                    }.buttonStyle(.plain)
+                Spacer(minLength: 8)
+                TimelineView(.periodic(from: .now, by: 1)) { tick in
+                    Text(tick.date.formatted(Self.clockFormat))
+                        .font(.system(.body, design: .rounded).weight(.medium)).monospacedDigit()
+                        .foregroundStyle(.secondary).fixedSize()
                 }
             }
-            .padding(.horizontal,18).padding(.top,18).padding(.bottom,14)
-            .background(MenuAppearance.wash(Self.highlight))
-            Divider()
-            VStack(spacing:8) {
-                HStack(spacing:4) {
+            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
+            Divider().padding(.horizontal, 18)
+            VStack(spacing: 6) {
+                HStack(spacing: 2) {
                     Text(formatted(displayed,.dateTime.month(.wide).year()).capitalized(with:Self.locale))
-                        .font(.system(size:14,weight:.semibold))
-                    Spacer()
+                        .font(.headline)
+                    Spacer(minLength: 4)
                     monthButton(-1)
+                    Button("Сегодня") { choose(Date()) }
+                        .buttonStyle(.bordered).controlSize(.small)
                     monthButton(1)
-                }.padding(.horizontal,5)
+                }.padding(.horizontal, 5)
                 let dates = days
                 Grid(horizontalSpacing:0,verticalSpacing:2) {
                     GridRow {
@@ -127,9 +119,10 @@ struct ShelfCalendar: View {
                         }
                     }
                 }
-            }.padding(.horizontal,13).padding(.vertical,10)
+            }.padding(.horizontal, 13).padding(.top, 10).padding(.bottom, 14)
         }
-        .frame(width:310).fixedSize(horizontal:false,vertical:true)
+        .frame(width: 320).fixedSize(horizontal: false, vertical: true)
+        .background { ShelfPanelSurface() }
         .onReceive(NotificationCenter.default.publisher(for:.NSCalendarDayChanged)) { _ in
             let now = Date()
             if calendar.isDate(selected,inSameDayAs:today) && calendar.isDate(displayed,equalTo:today,toGranularity:.month) { choose(now) }
