@@ -271,9 +271,29 @@ private struct StartBackdrop: NSViewRepresentable {
     func updateNSView(_ view: ShelfBackdrop, context: Context) {}
 }
 
+private struct FolderZoom: AnimatableModifier {
+    let icon: CGRect
+    let size: CGSize
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let remaining = 1 - progress
+        content
+            .scaleEffect(x: progress + remaining * icon.width / max(1, size.width),
+                         y: progress + remaining * icon.height / max(1, size.height), anchor: .topLeading)
+            .offset(x: remaining * icon.minX, y: remaining * icon.minY)
+            .opacity(min(1, progress * 1.6))
+    }
+}
+
 struct StartMenu: View {
     @AppStorage("blurShelfBackground") private var blurBackground = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var library: StartLibrary
     let size: CGSize
     let launch: (Item) -> Void
@@ -287,6 +307,7 @@ struct StartMenu: View {
     @State private var query = ""
     @State private var hover: String?
     @State private var folderKey: String?
+    @State private var folderIcon = CGRect.zero
     @State private var editingName = false
     @State private var draftName = ""
     @FocusState private var nameFocused: Bool
@@ -326,8 +347,8 @@ struct StartMenu: View {
     private func folderHeader(_ folder: StartFolder, key: String) -> some View {
         HStack(spacing: 6) {
             Button {
-                folderKey = nil
                 editingName = false
+                withAnimation(folderAnimation) { folderKey = nil }
             } label: { Image(systemName: "chevron.left") }
                 .accessibilityLabel("Назад к закреплённым")
             if editingName {
@@ -356,34 +377,65 @@ struct StartMenu: View {
         editingName = false
     }
 
-    private func pinnedArea(width: CGFloat, height: CGFloat) -> some View {
-        let folder = library.folder(folderKey)
-        let key = folder.map { StartPin.folder($0).key }
-        let entries = folder?.items.map(StartPin.app) ?? library.pins
-        return VStack(alignment: .leading, spacing: 8) {
-            if let folder, let key { folderHeader(folder, key: key) }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if entries.isEmpty {
-                        Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
-                            .font(.callout).foregroundStyle(.secondary).padding(.top, 8)
-                    }
-                    StartPinGrid(pins: entries, open: { pin in
+    private var folderAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .easeInOut(duration: 0.28)
+    }
+
+    private func pinList(_ entries: [StartPin], in key: String?, width: CGFloat, height: CGFloat) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if entries.isEmpty {
+                    Text("Нажмите правой кнопкой на программу и выберите «Закрепить».")
+                        .font(.callout).foregroundStyle(.secondary).padding(.top, 8)
+                }
+                GeometryReader { grid in
+                    let origin = grid.frame(in: .named("startPinnedArea")).origin
+                    StartPinGrid(pins: entries, open: { pin, icon in
                         switch pin {
                         case .app(let item): launch(item)
-                        case .folder: editingName = false; folderKey = pin.key
+                        case .folder:
+                            folderIcon = icon.offsetBy(dx: origin.x, dy: origin.y)
+                            editingName = false
+                            withAnimation(folderAnimation) { folderKey = pin.key }
                         }
                     }, unpin: { library.setPinned($0, false) },
                        extract: key.map { key in { library.extract($0, from: key) } },
                        dissolve: library.dissolve, group: key == nil ? library.group : nil,
                        move: { library.movePin($0, to: $1, in: key) })
-                        .frame(height: StartPinGrid.height(count: entries.count, width: width))
-                    Color.clear.frame(maxWidth: .infinity, minHeight: 12, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .contextMenu { if key == nil { Button("Добавить программу…", action: browse) } }
-                }.frame(minHeight: max(0, height - (key == nil ? 0 : 34)), alignment: .topLeading)
-            }.id(key)
+                }
+                .frame(height: StartPinGrid.height(count: entries.count, width: width))
+                Color.clear.frame(maxWidth: .infinity, minHeight: 12, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .contextMenu { if key == nil { Button("Добавить программу…", action: browse) } }
+            }.frame(minHeight: max(0, height), alignment: .topLeading)
         }
+    }
+
+    private func pinnedArea(width: CGFloat, height: CGFloat) -> some View {
+        let folder = library.folder(folderKey)
+        return ZStack(alignment: .topLeading) {
+            // Keep the source grid mounted so closing returns to the same scroll position.
+            pinList(library.pins, in: nil, width: width, height: height)
+                .opacity(folder == nil ? 1 : 0)
+                .animation(.easeOut(duration: 0.12).delay(folder == nil && !reduceMotion ? 0.14 : 0),
+                           value: folder != nil)
+                .allowsHitTesting(folder == nil)
+                .accessibilityHidden(folder != nil)
+            if let folder, let key = folderKey {
+                VStack(alignment: .leading, spacing: 8) {
+                    folderHeader(folder, key: key).padding(.horizontal, 8).padding(.top, 5)
+                    pinList(folder.items.map(StartPin.app), in: key, width: width, height: height - 39)
+                }
+                .frame(width: width, height: height, alignment: .topLeading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.045)))
+                .transition(reduceMotion ? .opacity : .modifier(
+                    active: FolderZoom(icon: folderIcon, size: CGSize(width: width, height: height), progress: 0),
+                    identity: FolderZoom(icon: folderIcon, size: CGSize(width: width, height: height), progress: 1)))
+                .zIndex(1)
+            }
+        }
+        .coordinateSpace(name: "startPinnedArea")
+        .clipped()
     }
 
     var body: some View {

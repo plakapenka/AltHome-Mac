@@ -2,7 +2,7 @@ import SwiftUI
 
 struct StartPinGrid: NSViewRepresentable {
     let pins: [StartPin]
-    let open: (StartPin) -> Void
+    let open: (StartPin, CGRect) -> Void
     let unpin: (Item) -> Void
     let extract: ((Item) -> Void)?
     let dissolve: (String) -> Void
@@ -151,17 +151,18 @@ struct StartPinGrid: NSViewRepresentable {
 
     private final class PinButton: ShelfButton {
         let item: StartPin
+        private let icon: NSImageView
         weak var grid: Grid?
         private var down: NSPoint?
         fileprivate var lift: DragImage?
 
         init(_ item: StartPin, grid: Grid) {
+            icon = NSImageView(image: Self.icon(for: item))
             self.item = item
             self.grid = grid
             super.init(frame: .zero)
             title = ""
             isBordered = false
-            let icon = NSImageView(image: Self.icon(for: item))
             icon.imageScaling = .scaleProportionallyUpOrDown
             let caption = NSTextField(wrappingLabelWithString: item.name)
             caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -201,7 +202,10 @@ struct StartPinGrid: NSViewRepresentable {
             }
         }
 
-        @objc private func openPin() { grid?.model?.open(item) }
+        @objc private func openPin() {
+            guard let grid else { return }
+            grid.model?.open(item, icon.convert(icon.bounds, to: grid))
+        }
         @objc private func unpin() {
             if case .app(let app) = item { grid?.model?.unpin(app) }
         }
