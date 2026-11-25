@@ -45,7 +45,7 @@ final class LowPowerControl: ObservableObject {
                     let command = "/usr/bin/pmset \(onAC ? "-c" : "-b") \(key) \(enabled ? 1 : 0)"
                     let script = """
                     try
-                        do shell script "\(command)" with prompt "TaskShelf меняет режим энергосбережения." with administrator privileges
+                        do shell script "\(command)" with prompt "AltHome Mac меняет режим энергосбережения." with administrator privileges
                     on error number -128
                         return
                     end try

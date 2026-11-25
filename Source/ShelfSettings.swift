@@ -49,7 +49,7 @@ private struct ShelfSettings: View {
                             owner.render()
                         })) {
                             Text("Системный").tag(DockMode.system)
-                            Text("Dock TaskShelf").tag(DockMode.taskShelf)
+                            Text("Dock AltHome Mac").tag(DockMode.taskShelf)
                             Text("Скрыть оба").tag(DockMode.hidden)
                         }.pickerStyle(.segmented)
                         Picker("Отображение", selection: Binding(get: { dockPinned }, set: { owner.tray.setDockPinned($0) })) {
@@ -102,7 +102,7 @@ private struct ShelfSettings: View {
                             }, set: { mode in
                                 if mode != .system && !AXIsProcessTrusted() { owner.requestWindowAccess(); return }
                                 guard owner.layoutShortcut.apply(mode) else {
-                                    owner.notify("Не удалось включить сочетание. Проверьте доступ TaskShelf к мониторингу ввода в настройках macOS.")
+                                    owner.notify("Не удалось включить сочетание. Проверьте доступ AltHome Mac к мониторингу ввода в настройках macOS.")
                                     return
                                 }
                                 layoutShortcutMode = mode.rawValue
@@ -113,7 +113,7 @@ private struct ShelfSettings: View {
                             Toggle("Fn как ⌘ для букв", isOn: Binding(get: { fnCommandLetters }, set: { enabled in
                                 if enabled && !AXIsProcessTrusted() { owner.requestWindowAccess(); return }
                                 guard owner.fnCommand.setEnabled(enabled) else {
-                                    owner.notify("Не удалось включить сочетания Fn. Проверьте «Универсальный доступ» для TaskShelf.")
+                                    owner.notify("Не удалось включить сочетания Fn. Проверьте «Универсальный доступ» для AltHome Mac.")
                                     return
                                 }
                                 fnCommandLetters = enabled
@@ -131,7 +131,7 @@ private struct ShelfSettings: View {
                                 if enabled {
                                     guard AXIsProcessTrusted() else { owner.requestWindowAccess(); return }
                                     guard owner.menuBarEdge.start() else {
-                                        owner.notify("Не удалось включить блокировку верхнего края. Проверьте «Универсальный доступ» для TaskShelf.")
+                                        owner.notify("Не удалось включить блокировку верхнего края. Проверьте «Универсальный доступ» для AltHome Mac.")
                                         return
                                     }
                                 } else {
@@ -186,7 +186,7 @@ extension Delegate {
             let host = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: host)
             window.styleMask = [.titled, .closable, .miniaturizable]
-            window.title = "Настройки TaskShelf"
+            window.title = "Настройки AltHome Mac"
             window.isReleasedWhenClosed = false
             window.setContentSize(host.view.fittingSize)
             window.center()

@@ -1,5 +1,5 @@
 // Interactive regression check on the main display with system auto-hide set to Always.
-// Run once with the TaskShelf switch on (hidden), then with it off (visible).
+// Run once with the AltHome Mac switch on (hidden), then with it off (visible).
 // swift Tests/MenuBarHover.swift hidden|visible
 import AppKit
 

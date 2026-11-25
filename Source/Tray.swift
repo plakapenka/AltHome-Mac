@@ -178,7 +178,7 @@ final class Tray: NSObject {
         }
         card.resized = { size in presented?.fitDock(to: size) }
         dockStrip = card
-        let panel = SlidingShelfPanel(title: "Dock TaskShelf", card: card, beside: dockEdge, in: shelf, screen: screen,
+        let panel = SlidingShelfPanel(title: "Dock AltHome Mac", card: card, beside: dockEdge, in: shelf, screen: screen,
                                       cornerRadius: 0)
         presented = panel
         dockPanel = panel
@@ -291,7 +291,7 @@ final class Tray: NSObject {
                     let alert = NSAlert()
                     alert.messageText = "Не удалось переместить «\(item.name)» в Корзину"
                     alert.informativeText = error.domain == NSOSStatusErrorDomain && error.code == Int(errAEEventNotPermitted)
-                        ? "Разрешите TaskShelf управлять Finder в разделе «Конфиденциальность и безопасность → Автоматизация» или откройте расположение программы и удалите её в Finder."
+                        ? "Разрешите AltHome Mac управлять Finder в разделе «Конфиденциальность и безопасность → Автоматизация» или откройте расположение программы и удалите её в Finder."
                         : error.localizedDescription
                     alert.addButton(withTitle: "Закрыть")
                     alert.addButton(withTitle: "Показать в Finder")

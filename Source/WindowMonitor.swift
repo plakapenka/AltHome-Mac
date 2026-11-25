@@ -23,7 +23,7 @@ final class WindowMonitor {
         self.changed = changed
         root = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(root, 0.35)
-        queue = DispatchQueue(label: "TaskShelf.windows.\(app.processIdentifier)", qos: .userInitiated)
+        queue = DispatchQueue(label: "AltHomeMac.windows.\(app.processIdentifier)", qos: .userInitiated)
     }
 
     func request() {

@@ -1029,7 +1029,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
             let close = menu.addItem(withTitle:"Закрыть окно",action:nil,keyEquivalent:"")
             close.isEnabled = false
-            close.toolTip = "Для закрытия окон включите TaskShelf в разделе «Универсальный доступ»."
+            close.toolTip = "Для закрытия окон включите AltHome Mac в разделе «Универсальный доступ»."
             add(menu,"Разрешить доступ к окнам…", symbol: "accessibility") { self.requestWindowAccess() }
         }
         return menu
@@ -1092,7 +1092,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             }
             self.launch(Item(url))
         }
-        add(m,"Настройки TaskShelf…", symbol: "gearshape") { self.showSettings() }
+        add(m,"Настройки AltHome Mac…", symbol: "gearshape") { self.showSettings() }
         m.addItem(.separator())
         add(m,"Закрепить приложение…", symbol: "pin") {
             let p = NSOpenPanel()

@@ -158,7 +158,7 @@ final class WindowPreview {
             panel.orderFrontRegardless()
             trackPointer()
             guard CGPreflightScreenCaptureAccess() else {
-                message.stringValue = "Настройки TaskShelf → Основные → Превью окон"
+                message.stringValue = "Настройки AltHome Mac → Основные → Превью окон"
                 return
             }
             let target = PreviewTarget(pid:app.processIdentifier,window:task.entry?.window,

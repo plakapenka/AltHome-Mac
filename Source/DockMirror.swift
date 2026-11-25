@@ -126,7 +126,7 @@ enum DockMode: String {
     }
 }
 
-// Only touch the two auto-hide settings. Preserve absent keys and later edits made outside TaskShelf.
+// Only touch the two auto-hide settings. Preserve absent keys and later edits made outside AltHome Mac.
 enum SystemDockVisibility {
     private static let domain = "com.apple.dock" as CFString
     private static let hidden: [String: NSNumber] = ["autohide": true, "autohide-delay": 86400]
