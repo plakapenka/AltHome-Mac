@@ -486,8 +486,8 @@ final class Tray: NSObject, NSPopoverDelegate {
                 presented?.fitContent(to:size)
             })
         let panel = SlidingShelfPanel(title:page.rawValue,card:card,beside:anchor,in:shelf,screen:screen,
-                                      cornerRadius: page.cornerRadius)
-        if page.usesGlassPanel { panel.appearance = nil }
+                                      cornerRadius: TrayControls.cornerRadius)
+        panel.appearance = nil
         presented = panel
         slidingPanel = panel
         panel.showPanel()

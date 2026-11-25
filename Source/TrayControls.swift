@@ -7,8 +7,6 @@ import IOBluetooth
 
 enum TrayPage: String {
     case wifi = "Wi-Fi", sound = "Звук", bluetooth = "Bluetooth", airDrop = "AirDrop", battery = "Аккумулятор"
-    var usesGlassPanel: Bool { self == .sound || self == .battery }
-    var cornerRadius: CGFloat { usesGlassPanel ? 22 : 13 }
 
     var settingsTitle: String {
         switch self {
@@ -180,12 +178,8 @@ private struct WiFiControls: View {
             WirelessSwitch(title: "Wi-Fi", isOn: Binding(get: { power }, set: setPower))
                 .disabled(connecting || interface == nil)
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(LinearGradient(colors: [Color.blue.opacity(connection.associated ? 0.18 : 0.04), Color.primary.opacity(0.045)],
-                                     startPoint: .leading, endPoint: .trailing))
-        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 
     private func networkRow(_ choice: NetworkChoice) -> some View {
@@ -246,6 +240,7 @@ private struct WiFiControls: View {
         VStack(alignment: .leading, spacing: 11) {
             connectionSummary
             if power {
+                Divider().padding(.horizontal, 8)
                 if access.status != .authorizedAlways {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Для показа названий сетей macOS нужен доступ к геолокации.")
@@ -434,6 +429,7 @@ private struct SoundControls: View {
 }
 
 struct TrayControls: View {
+    static let cornerRadius: CGFloat = 22
     let display: CGDirectDisplayID
     let initialPage: TrayPage
     let wifiUpdates: AnyPublisher<WiFiStatus, Never>
@@ -444,37 +440,25 @@ struct TrayControls: View {
 
     @ViewBuilder
     private var surface: some View {
-        if initialPage.usesGlassPanel {
-            let shape = RoundedRectangle(cornerRadius: initialPage.cornerRadius, style: .continuous)
-            if #available(macOS 26.0, *) {
-                Color.clear.glassEffect(.regular, in: shape)
-            } else {
-                shape.fill(.regularMaterial)
-            }
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
         } else {
-            Color(nsColor: .windowBackgroundColor)
+            shape.fill(.regularMaterial)
         }
     }
 
     var body: some View {
-        let insetSection = page != .wifi && !page.usesGlassPanel
         VStack(alignment: .leading, spacing: 0) {
             if initialPage == .wifi {
-                HStack(spacing: 4) {
+                Picker("Беспроводные подключения", selection: $wirelessPage) {
                     ForEach([TrayPage.wifi, .bluetooth, .airDrop], id: \.self) { tab in
-                        Button { wirelessPage = tab } label: {
-                            Text(tab.rawValue)
-                                .font(.system(size: 12, weight: wirelessPage == tab ? .semibold : .medium))
-                                .foregroundStyle(wirelessPage == tab ? .primary : .secondary)
-                                .frame(maxWidth: .infinity).frame(height: 28)
-                                .background(MenuAppearance.selection(wirelessPage == tab))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(wirelessPage == tab ? .isSelected : [])
+                        Text(tab.rawValue).tag(tab)
                     }
                 }
-                .padding(.horizontal, 13).padding(.top, 11).padding(.bottom, 2)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 4)
             }
 
             Group {
@@ -494,15 +478,13 @@ struct TrayControls: View {
                         }
                     }.buttonStyle(MenuRowStyle())
                 case .sound: SoundControls()
-                case .bluetooth: BluetoothControls()
+                case .bluetooth: BluetoothControls().padding(.horizontal, 8)
                 case .battery: BatteryControls(display: display)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(insetSection ? 12 : 0)
-                .background(Color.primary.opacity(insetSection ? 0.045 : 0), in: RoundedRectangle(cornerRadius: 10))
                 .padding(.horizontal, 10).padding(.vertical, 8)
 
-            Divider().padding(.horizontal, page.usesGlassPanel ? 16 : 0)
+            Divider().padding(.horizontal, 16)
             Button { openSettings(page.settings) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape")
@@ -512,9 +494,9 @@ struct TrayControls: View {
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     }
                 }.foregroundStyle(.secondary)
-            }.buttonStyle(MenuRowStyle()).padding(.horizontal, page.usesGlassPanel ? 10 : 7).padding(.vertical, page.usesGlassPanel ? 6 : 4)
+            }.buttonStyle(MenuRowStyle()).padding(.horizontal, 10).padding(.vertical, 6)
         }
-        .frame(width: initialPage == .wifi || initialPage.usesGlassPanel ? 336 : 310)
+        .frame(width: 336)
         .fixedSize(horizontal: false, vertical: true)
         .background { surface }
     }
