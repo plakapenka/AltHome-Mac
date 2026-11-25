@@ -373,19 +373,28 @@ final class Tile: ShelfButton {
         icon.frame = NSRect(x:iconCenterX-iconSize/2, y:iconY, width:iconSize, height:iconSize)
         indicator.isHidden = !running
         if running {
-            let markWidth: CGFloat = active ? (sizing.largeIcons ? 16 : 12) : (sizing.largeIcons ? 8 : 6)
             let markY = isFlipped ? icon.frame.maxY + gap : stackMinY
-            indicator.frame = NSRect(x:iconCenterX-markWidth/2, y:markY, width:markWidth, height:markHeight)
-            indicator.layer?.backgroundColor = (active ? NSColor(srgbRed:0.38,green:0.83,blue:1,alpha:1) : NSColor.white).cgColor
+            indicator.frame = NSRect(x: iconCenterX, y: markY, width: 0, height: markHeight)
         }
         let labelHeight = ceil(caption.intrinsicContentSize.height)
         caption.frame = NSRect(x:sizing.captionX, y:bounds.midY-labelHeight/2,
                                width:max(1,bounds.width-sizing.captionX-Self.trailingInset), height:labelHeight)
-        selected = active; tint()
+        updateSelection(active, sizing: sizing)
         let label = (text != nil && text != item.name) ? "\(item.name) — \(text!)" : item.name
         setAccessibilityLabel(label)
         toolTip = running ? nil : label + (pinned ? " · закреплено" : "") + (running ? " · запущено" : "") + "\nПравый клик — меню"
-        setAccessibilityValue(active ? "Активно" : running ? "Запущено" : "Закреплено")
+    }
+
+    func updateSelection(_ active: Bool, sizing: ShelfSizing) {
+        selected = active
+        tint()
+        if !indicator.isHidden {
+            let width: CGFloat = active ? (sizing.largeIcons ? 16 : 12) : (sizing.largeIcons ? 8 : 6)
+            indicator.frame = CGRect(x: icon.frame.midX - width / 2, y: indicator.frame.minY,
+                                     width: width, height: indicator.frame.height)
+            indicator.layer?.backgroundColor = (active ? NSColor(srgbRed:0.38,green:0.83,blue:1,alpha:1) : NSColor.white).cgColor
+        }
+        setAccessibilityValue(active ? "Активно" : indicator.isHidden ? "Закреплено" : "Запущено")
     }
 }
 final class Delegate: NSObject, NSApplicationDelegate {
@@ -637,9 +646,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     @objc private func workspaceChanged(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { refresh(); return }
+        if note.name == NSWorkspace.didActivateApplicationNotification {
+            scheduleMaximizedWindowFit()
+            if let monitor = monitors[app.processIdentifier], !monitor.app.isTerminated {
+                monitor.request()
+                updateTaskSelection()
+                return
+            }
+        }
         syncWindows(changedPID: app.processIdentifier)
-        if note.name == NSWorkspace.didActivateApplicationNotification { scheduleMaximizedWindowFit() }
-        renderTasks()
+        scheduleTaskRender()
     }
 
     @objc private func activeSpaceChanged() {
@@ -678,16 +694,46 @@ final class Delegate: NSObject, NSApplicationDelegate {
                 snapshots.removeValue(forKey: pid)
                 monitors[pid] = WindowMonitor(app: app) { [weak self] entries in
                     guard let self, !app.isTerminated, self.snapshots[pid] != entries else { return }
-                    let previous = self.snapshots[pid]?.first(where: { $0.focused })
+                    let oldEntries = self.snapshots[pid]
+                    let previous = oldEntries?.first(where: { $0.focused })
                     if app.isActive, let focused = entries?.first(where: { $0.focused }),
                        focused.window != previous?.window || focused.fullScreen != previous?.fullScreen {
                         self.scheduleMaximizedWindowFit()
                     }
                     self.snapshots[pid] = entries
+                    // AX may reorder its list when focus changes. The shelf keeps its own order.
+                    if let oldEntries, let entries, oldEntries.count == entries.count {
+                        let titles = Dictionary(oldEntries.map { ($0.window, $0.title) }, uniquingKeysWith: { first, _ in first })
+                        if entries.allSatisfy({ titles[$0.window] == $0.title }) {
+                            self.updateTaskSelection()
+                            return
+                        }
+                    }
                     self.scheduleTaskRender()
                 }
                 monitors[pid]?.request()
             }
+        }
+    }
+
+    private func updateTaskSelection() {
+        let front = ws.frontmostApplication
+        let focused = front.flatMap { app in
+            snapshots[app.processIdentifier]?.first(where: { $0.focused })?.window
+        }
+        let appOnlyKey = front.flatMap { app -> String? in
+            guard snapshots[app.processIdentifier] == nil, observed.values.contains(app.processIdentifier) else { return nil }
+            return app.bundleIdentifier ?? app.bundleURL?.standardizedFileURL.path
+        }
+        for (id, tile) in tiles {
+            let active: Bool
+            switch id {
+            case .window(let pid, let window):
+                active = pid == front?.processIdentifier && window == focused
+            case .app(let key):
+                active = key == appOnlyKey
+            }
+            if active != tile.selected { tile.updateSelection(active, sizing: bar.sizing) }
         }
     }
 
@@ -850,13 +896,18 @@ final class Delegate: NSObject, NSApplicationDelegate {
             tile.press = { [weak self] in
                 guard let self else { return }
                 if let app = task.app, let entry = task.entry, !app.isTerminated {
-                    let focused = element(AXUIElementCreateApplication(app.processIdentifier),kAXFocusedWindowAttribute)
-                    if app.isActive, focused.map({ CFEqual($0,entry.window) }) == true, !minimized(entry.window) {
+                    if app.isActive,
+                       element(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute) == entry.window,
+                       !minimized(entry.window) {
                         if !setMini(entry.window,true) { self.notify("Это окно не поддерживает сворачивание.") }
                     } else { self.bring(entry.window,app) }
                 } else if let app = task.app, !app.isTerminated { self.toggle(item,app) }
                 else { self.launch(item) }
-                self.refresh()
+                if let app = task.app, let monitor = self.monitors[app.processIdentifier], !monitor.app.isTerminated {
+                    monitor.request()
+                } else {
+                    self.refresh()
+                }
             }
             tile.revealForFileDrag = task.app.map { app in
                 { [weak self] in
@@ -902,7 +953,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         let apps = moved.compactMap { tiles[$0]?.item.key }.filter { seen.insert($0).inserted }
         appOrder = rememberedOrder(apps, previous: appOrder)
         defaults.set(appOrder, forKey: "taskAppOrder")
-        render()
+        renderTasks()
     }
 
     private func updateStripWidth() {
@@ -951,8 +1002,8 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if reportFailure { notify("Не удалось восстановить окно.") }
             return false
         }
-        app.unhide()
-        app.activate(options:[])
+        if app.isHidden { app.unhide() }
+        if !app.isActive { app.activate(options: []) }
         _ = AXUIElementPerformAction(window,kAXRaiseAction as CFString)
         remembered.removeValue(forKey: app.processIdentifier)
         return true
